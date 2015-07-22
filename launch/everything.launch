@@ -1,0 +1,101 @@
+<launch>
+  <!--
+  - rosbag play
+  - ros_tld_gui_node
+  - ros_tld_tracker_node
+  - bb_to_world_node
+  - normalize_imu
+  - odom_world_transform
+  - robot_pose_ekf
+  -->
+
+  <!--
+       TODO
+       Prima di lanciare 'rqt_graph', lanciare 'rosparam set enable_statistics true'
+       per avere statistiche sui topics.
+  -->
+
+  <!-- declare arg to be passed in 'rosbag' -->
+  <!--<arg name="rosbag_flags" default="pause "/> -->
+  <!--<arg name="bag_dir" default="/home/giacomo/catkin_ws/"/>-->
+  <!--<arg name="bag_file_name" default="2015-06-30-17-57-45.bag"/>-->
+  <!--<arg name="bag_path" default="($arg bag_dir)($arg bag_file_name)"/>-->
+
+  <!-- Nodes -->
+  <!--<node pkg="rosbag" type="play" name="player" output="screen" args="($arg rosbag_flags) ($arg bag_path)"/>-->
+  <node pkg="rosbag" type="play" name="player" output="screen" args="--pause /home/giacomo/catkin_ws/2015-06-30-17-57-45.bag"/>
+
+  <!-- declare arg to be passed in 'ros_tld_gui_node' -->
+  <arg name="image_topic" default="/kinect2_center/rgb_lowres/image"/>
+  <arg name="camera_info_topic" default="/kinect2_center/rgb_lowres/camera_info"/>
+
+  <!-- Nodes -->
+  <node name="ros_tld_gui_node" pkg="tld_tracker" type="tld_gui_node" output="screen">
+    <remap from="image" to="$(arg image_topic)"/>
+    <remap from="tracked_object" to="tld_tracked_object"/>
+    <remap from="fps_tracker" to="tld_fps"/>
+  </node>
+
+  <!-- declare arg to be passed in 'ros_tld_tracker_node' -->
+  <arg name="load_model" default="false"/>
+  <arg name="auto_face_detection" default="false"/>
+  <arg name="model_import_file" default="/home/tld_models/sample"/>
+  <arg name="model_export_file" default="/home/tld_models/sample"/>
+  <arg name="cascade_path" default="$(env ROS_ROOT)/../OpenCV/haarcascades/haarcascade_frontalface_alt.xml"/>
+
+  <!-- Nodes -->
+  <node name="ros_tld_tracker_node" pkg="tld_tracker" type="tld_tracker_node" output="screen">
+    <!--remap of topics -->
+    <remap from="image" to="$(arg image_topic)"/>
+    <remap from="bounding_box" to="tld_gui_bb"/>
+    <remap from="cmds" to="tld_gui_cmds"/>
+
+    <!--declare param and read value of arg -->
+    <param name="showOutput" value="true" type="bool"/>
+    <param name="loadModel" value="$(arg load_model)" type="bool"/>
+    <param name="autoFaceDetection" value="$(arg auto_face_detection)" type="bool"/>
+    <param name="modelImportFile" value="$(arg model_import_file)" type="string"/>
+    <param name="exportModelAfterRun" value="false" type="bool"/>
+    <param name="modelExportFile" value="$(arg model_export_file)" type="string"/>
+    <param name="cascadePath" value="$(arg cascade_path)" type="string"/>
+    <param name="x" value="200" type="int"/>
+    <param name="y" value="200" type="int"/>
+    <param name="width" value="200" type="int"/>
+    <param name="height" value="200" type="int"/>
+    <param name="correctBB" value="false" type="bool"/>
+  </node>
+
+  <!-- declare arg to be passed in 'bb_to_world_node' -->
+  <arg name="visual_tracker_position_topic" default="/tld_tracked_object"/>
+
+  <!-- Nodes -->
+  <node name="bb_to_world_node" pkg="bb_to_world" type="bb_to_world_node" output="screen">
+    <remap from="b_box" to="$(arg visual_tracker_position_topic)"/>
+    <remap from="camera_info" to="$(arg camera_info_topic)"/>
+    <remap from="image" to="$(arg image_topic)"/>
+  </node>
+
+  <!-- Nodes -->
+  <node name="normalize_imu" pkg="normalize_imu" type="normalize_imu.py" output="screen">
+  </node>
+
+  <!-- Nodes -->
+  <node name="odom_world_transform_node" pkg="odom_world_transform" type="odom_world_transform_node" output="screen">
+    <remap from="robot_odom" to="/odom"/>
+  </node>
+
+  <!-- Nodes -->
+  <node pkg="robot_pose_ekf" type="robot_pose_ekf" name="robot_pose_ekf" output="screen">
+    <remap from="imu_data" to="imu_normalized"/>
+    <param name="output_frame" value="odom"/>
+    <param name="freq" value="30.0"/>
+    <param name="debug" value="true"/>
+    <param name="sensor_timeout" value="1.0"/>
+    <param name="odom_used" value="true"/>
+    <param name="imu_used" value="true"/>
+    <param name="vo_used" value="false"/>
+    <param name="gps_used" value="false"/>
+  </node>
+
+</launch>
+
