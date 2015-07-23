@@ -18,7 +18,7 @@
 #include <sensor_msgs/PointCloud2.h>
 #include <std_msgs/Header.h>
 #include <tld_msgs/BoundingBox.h>
-#include <visual_tracking_msgs/VisualTrack2DStamped.h>
+//#include <visual_tracking_msgs/VisualTrack2DStamped.h>
 
 // PCL libraries
 #include <pcl/common/centroid.h>
