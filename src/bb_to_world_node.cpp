@@ -106,9 +106,9 @@ void boundingBoxCallback(
     const tld_msgs::BoundingBox::ConstPtr& b_box,
     const std::string target_frame,
     const tf::TransformListener* transformer,
-    const ros::Publisher* robot_pose_pub,
-    const ros::Publisher* robot_pose_to_ekf_pub,
-    const ros::Publisher* robot_visual_track_2d_pub)
+    const ros::Publisher* robot_pose_pub)
+    //const ros::Publisher* robot_pose_to_ekf_pub,
+    //const ros::Publisher* robot_visual_track_2d_pub)
 {
   static int seq; // Sequence number of the packages sent from this node.
 
@@ -245,14 +245,14 @@ void boundingBoxCallback(
     robot_pose_pub->publish(pose_2D_stamped_msg);
 
     // Preparazione del msg VisualTrack2DStamped per essere inviato
-    visual_tracking_msgs::VisualTrack2DStamped visual_track_2d_stamped_msg;
-    visual_track_2d_stamped_msg.header = pose_2D_stamped_msg.header;
-    visual_track_2d_stamped_msg.pose = pose_2D_stamped_msg;
-    visual_track_2d_stamped_msg.confidence = b_box->confidence;
+    //visual_tracking_msgs::VisualTrack2DStamped visual_track_2d_stamped_msg;
+    //visual_track_2d_stamped_msg.header = pose_2D_stamped_msg.header;
+    //visual_track_2d_stamped_msg.pose = pose_2D_stamped_msg;
+    //visual_track_2d_stamped_msg.confidence = b_box->confidence;
 
     // Pubblicazione delle coordinate del punto e della confidenza
     //  con cui è calcolato in un topic
-    robot_visual_track_2d_pub->publish(visual_track_2d_stamped_msg);
+    //robot_visual_track_2d_pub->publish(visual_track_2d_stamped_msg);
 
     // Building GPS sensor message
     //  (from: http://wiki.ros.org/robot_pose_ekf/Tutorials/AddingGpsSensor)
@@ -261,35 +261,35 @@ void boundingBoxCallback(
     //  I campi che vengono letti dal pacchetto sono 'pose' e 'header.stamp'.
     //  We use the GPS sensor message to send the visual tracker's position
     //  measurement.
-    nav_msgs::Odometry to_ekf_msg;
-    to_ekf_msg.header.frame_id = "/base_footprint";                 // the tracked robot frame
-    to_ekf_msg.header.seq = seq;                                    // sequence number
-    to_ekf_msg.header.stamp = sensor_depth_image->header.stamp;     // time of GPS measurement
-    //to_ekf_msg.child_frame_id = "";                               // XXX: do we need to set the 'child_frame_id'?
-    to_ekf_msg.pose.pose.orientation.x = 0;                         // identity quaternion
-    to_ekf_msg.pose.pose.orientation.y = 0;                         // identity quaternion
-    to_ekf_msg.pose.pose.orientation.z = 0;                         // identity quaternion
-    to_ekf_msg.pose.pose.orientation.w = 1;                         // identity quaternion
-    to_ekf_msg.pose.pose.position.x = centroid(0);                  // x measurement BB
-    to_ekf_msg.pose.pose.position.y = centroid(1);                  // y measurement BB
-    to_ekf_msg.pose.pose.position.z = 0;                            // z measurement BB
-    {
-      boost::array<double, 36ul> pose_covariance =
-      { 1, 0, 0, 0, 0, 0,                                             // covariance on visual tracking x
-        0, 1, 0, 0, 0, 0,                                             // covariance on visual tracking y
-        0, 0, 1, 0, 0, 0,                                             // covariance on visual tracking z
-        0, 0, 0, 99999, 0, 0,                                         // large covariance on rot x
-        0, 0, 0, 0, 99999, 0,                                         // large covariance on rot y
-        0, 0, 0, 0, 0, 99999};                                        // large covariance on rot z
-      to_ekf_msg.pose.covariance = pose_covariance;
-    }
+    //nav_msgs::Odometry to_ekf_msg;
+    //to_ekf_msg.header.frame_id = "/base_footprint";                 // the tracked robot frame
+    //to_ekf_msg.header.seq = seq;                                    // sequence number
+    //to_ekf_msg.header.stamp = sensor_depth_image->header.stamp;     // time of GPS measurement
+    ////to_ekf_msg.child_frame_id = "";                               // XXX: do we need to set the 'child_frame_id'?
+    //to_ekf_msg.pose.pose.orientation.x = 0;                         // identity quaternion
+    //to_ekf_msg.pose.pose.orientation.y = 0;                         // identity quaternion
+    //to_ekf_msg.pose.pose.orientation.z = 0;                         // identity quaternion
+    //to_ekf_msg.pose.pose.orientation.w = 1;                         // identity quaternion
+    //to_ekf_msg.pose.pose.position.x = centroid(0);                  // x measurement BB
+    //to_ekf_msg.pose.pose.position.y = centroid(1);                  // y measurement BB
+    //to_ekf_msg.pose.pose.position.z = 0;                            // z measurement BB
+    //{
+      //boost::array<double, 36ul> pose_covariance =
+      //{ 1, 0, 0, 0, 0, 0,                                             // covariance on visual tracking x
+        //0, 1, 0, 0, 0, 0,                                             // covariance on visual tracking y
+        //0, 0, 1, 0, 0, 0,                                             // covariance on visual tracking z
+        //0, 0, 0, 99999, 0, 0,                                         // large covariance on rot x
+        //0, 0, 0, 0, 99999, 0,                                         // large covariance on rot y
+        //0, 0, 0, 0, 0, 99999};                                        // large covariance on rot z
+      //to_ekf_msg.pose.covariance = pose_covariance;
+    //}
 
     // after the dispatch the sequence number is incremented
     seq++;
 
     // Pubblicazione delle coordinate del punto, come se fosse
     //  odometria, per il pacchetto 'robot_pose_ekf', nel topic
-    robot_pose_to_ekf_pub->publish(to_ekf_msg);
+    //robot_pose_to_ekf_pub->publish(to_ekf_msg);
   }
   catch(const std::exception& ex)
   {
@@ -341,12 +341,12 @@ int main(int argc, char** argv)
 
   // Viene pubblicata la posa 2D del robot, come se fosse un messaggio di odometria,
   //  in modo da poterla inviare al nodo 'robot_pose_ekf' per la sensor fusion.
-  ros::Publisher robot_pose_to_ekf_pub = node.advertise<nav_msgs::Odometry> ("gps", 1);
+  //ros::Publisher robot_pose_to_ekf_pub = node.advertise<nav_msgs::Odometry> ("gps", 1);
 
 
   // Viene pubblicata la posa 2D del robot ottenuta dal tracking visuale,
   //  convertita nelle cordinate del mondo, assieme alla confidenza.
-  ros::Publisher robot_visual_track_2d_pub = node.advertise<visual_tracking_msgs::VisualTrack2DStamped> ("tracker_2d_pose", 1);
+  //ros::Publisher robot_visual_track_2d_pub = node.advertise<visual_tracking_msgs::VisualTrack2DStamped> ("tracker_2d_pose", 1);
 
   sync.registerCallback(
       boost::bind(
@@ -354,12 +354,13 @@ int main(int argc, char** argv)
         _1, _2,
         target_frame,
         &transformer,
-        &robot_pose_pub, &robot_pose_to_ekf_pub, &robot_visual_track_2d_pub));
+        &robot_pose_pub));
+        //&robot_pose_pub, &robot_pose_to_ekf_pub, &robot_visual_track_2d_pub));
 
   // This callback will be performed once (camera model is costant).
   depth_camera_info_sub = node.subscribe("camera_info", 1, depth_camera_info_cb);
 
-  show_me_point_cloud = node.advertise<sensor_msgs::PointCloud2>("bbPointCloud", 1);
+  show_me_point_cloud = node.advertise<sensor_msgs::PointCloud2>("bb_point_cloud", 1);
 
   sleep(5); //sleep 5 seconds. Wait 'openni_launch' to come up.
 
