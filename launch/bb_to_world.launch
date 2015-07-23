@@ -3,9 +3,9 @@
   <arg name="end_frame" default="/world"/>
 
   <node name="bb_to_world_node" pkg="bb_to_world" type="bb_to_world_node" args="$(arg end_frame)" output="screen">
-    <remap from="tracker/bounding_box" to="tld_tracked_object"/>
-    <remap from="camera/image" to="/kinect2/sd/image_depth_rect" />
-    <remap from="cameta/camera_info" to="/kinect2/sd/camera_info" />
+    <remap from="b_box" to="tld_tracked_object"/>
+    <remap from="image" to="/kinect2/sd/image_depth_rect" />
+    <remap from="camera_info" to="/kinect2/sd/camera_info" />
     <param name="z_threshold" value="0.02" />
     <param name="min_confidence" value="0.4" />
   </node>
