@@ -159,11 +159,14 @@ void boundingBoxCallback(
         // Dando per scontato che l'immagine sia codificata su 16 bit e
         //  che sia little endian.
         const uint16_t p_depth = sensor_depth_image->data[i] | (sensor_depth_image->data[i+1] << 8); //'data' è 1 Byte
+        // TODO: Ottenere la 'refined_pcl' direttamente in questa fase
+        // Se il punto ha una profondita' non nulla ed e' all'interno della bounding box
+        // lo aggiungiamo alla point cloud
         if( p_depth > 0 && roi_rect.contains(cv::Point(cols,rows)) )
         {
           if(print_debug)
           {
-            ROS_DEBUG("point %d %d",cols, rows );
+            ROS_DEBUG("point %d %d", cols, rows);
             print_debug = 0;
           }
           pcl::PointXYZ pcl_point;
@@ -171,6 +174,7 @@ void boundingBoxCallback(
           pcl_point.y = (rows - center_y) * p_depth * constant_y;
           pcl_point.z = depth_image_proc::DepthTraits<uint16_t>::toMeters(p_depth);
 
+          //if( pcl_point.z > z_thresh )
           bb_pcl.points.push_back(pcl_point);
         }
       }
@@ -194,7 +198,7 @@ void boundingBoxCallback(
     // 'refined_pcl' è una Point Cloud che contiene solamente
     //  i punti dati dalla bounding box del tracker
     //  che abbiano un'elevazione superiore a 'z_thresh'
-    //  in questo modo nel calcolo del centroide diventa più corretto
+    //  in questo modo il calcolo del centroide diventa più corretto
     pcl::PointCloud<pcl::PointXYZ> refined_pcl;
     refined_pcl.header.frame_id = TARGET_FRAME_DEF;
     refined_pcl.height = 1; // unorganized PC
