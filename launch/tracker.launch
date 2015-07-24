@@ -4,7 +4,7 @@
   <arg name="z_threshold" default="0.04"/>
   <arg name="load_model" default="false"/>
   <arg name="model_file" default=""/>
-  <arg name="output_frame" default="world"/>
+  <!-- <arg name="output_frame" default="world"/> -->
   <arg name="publish_world_tf" default="false"/>
 
   <include file="$(find opt_calibration)/launch/opt_calibration_results.launch" if="$(arg publish_world_tf)"/>
@@ -16,7 +16,7 @@
   </include>
 
   <include file="$(find bb_to_world)/launch/bb_to_world.launch">
-    <arg name="output_frame" value="$(arg output_frame)"/>
+    <!-- <arg name="output_frame" value="$(arg output_frame)"/> -->
     <arg name="min_confidence" value="$(arg min_confidence)"/>
     <arg name="z_threshold" value="$(arg z_threshold)"/>
   </include>
