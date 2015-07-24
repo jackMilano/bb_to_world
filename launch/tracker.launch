@@ -5,7 +5,7 @@
   <arg name="load_model" default="false"/>
   <arg name="model_file" default=""/>
   <!-- <arg name="output_frame" default="world"/> -->
-  <arg name="publish_world_tf" default="false"/>
+  <arg name="publish_world_tf" default="true"/>
 
   <include file="$(find opt_calibration)/launch/opt_calibration_results.launch" if="$(arg publish_world_tf)"/>
 
