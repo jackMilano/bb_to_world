@@ -63,13 +63,15 @@ float center_y;
 float constant_x;
 float constant_y;
 double z_thresh = -1.0;
-double min_confidence = MIN_CONFIDENCE;
+double min_confidence;
 
 
 void dynamicReconfCb(bb_to_world::BBToWorldConfig &conf, uint32_t level)
 {
   z_thresh = conf.z_threshold;
+  ROS_DEBUG("z_tresh has changed: %f.", z_thresh);
   min_confidence = conf.min_confidence;
+  ROS_DEBUG("min_confidence has changed: %f.", min_confidence);
 }
 
 void depth_camera_info_cb(const sensor_msgs::CameraInfo::ConstPtr& depth_camera_info)
@@ -114,7 +116,7 @@ void boundingBoxCallback(
 
   // Quando la confidenza è bassa viene segnalato,
   //  ed il pacchetto non viene inviato.
-  if( b_box->confidence < MIN_CONFIDENCE )
+  if( b_box->confidence < min_confidence )
   {
     ROS_INFO("Confidence is too low! Confidence = %.2f.\n", b_box->confidence);
     return;
@@ -209,7 +211,7 @@ void boundingBoxCallback(
       if(bb_pcl.points[i].z > z_thresh)
         refined_pcl.points.push_back(bb_pcl.points[i]);
     }
-    ROS_DEBUG("%lu points, threshold %f", refined_pcl.points.size(), z_thresh);
+    ROS_DEBUG("'refined_pcl' %lu points, z_tresh %f", refined_pcl.points.size(), z_thresh);
     refined_pcl.width = refined_pcl.points.size();
 
     // Calcolo del centroide (nel sistema di riferimento della Depth Map)
@@ -309,6 +311,7 @@ int main(int argc, char** argv)
 
   std::string target_frame;
   camera_info_received = false;
+  min_confidence = MIN_CONFIDENCE;
 
   // Check arguments
   if( argc != 2 )
