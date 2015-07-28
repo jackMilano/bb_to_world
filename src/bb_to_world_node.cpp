@@ -53,25 +53,25 @@ typedef tf::Stamped<tf::Vector3> StampedPoint;
 
 // Global variables
 image_geometry::PinholeCameraModel cam_model_;
-// Altrimenti 'StereoCameraModel' per una coppia di pinhole camera.
+//projected_game_msgs::Pose2DStamped old_pose_2D_stamped_msg;
 ros::Publisher show_me_point_cloud;
 ros::Subscriber depth_camera_info_sub;
 bool camera_info_received;
+double min_confidence;
 double unit_scaling;
+double z_thresh;
 float center_x;
 float center_y;
 float constant_x;
 float constant_y;
-double z_thresh = -1.0;
-double min_confidence;
 
 
 void dynamicReconfCb(bb_to_world::BBToWorldConfig &conf, uint32_t level)
 {
-  z_thresh = conf.z_threshold;
-  ROS_DEBUG("z_tresh has changed: %f.", z_thresh);
   min_confidence = conf.min_confidence;
   ROS_DEBUG("min_confidence has changed: %f.", min_confidence);
+  z_thresh = conf.z_threshold;
+  ROS_DEBUG("z_thresh has changed: %f.", z_thresh);
 }
 
 void depth_camera_info_cb(const sensor_msgs::CameraInfo::ConstPtr& depth_camera_info)
@@ -109,8 +109,8 @@ void boundingBoxCallback(
     const std::string target_frame,
     const tf::TransformListener* transformer,
     const ros::Publisher* robot_pose_pub)
-    //const ros::Publisher* robot_pose_to_ekf_pub,
-    //const ros::Publisher* robot_visual_track_2d_pub)
+  //const ros::Publisher* robot_pose_to_ekf_pub,
+  //const ros::Publisher* robot_visual_track_2d_pub)
 {
   static int seq; // Sequence number of the packages sent from this node.
 
@@ -119,6 +119,10 @@ void boundingBoxCallback(
   if( b_box->confidence < min_confidence )
   {
     ROS_INFO("Confidence is too low! Confidence = %.2f.\n", b_box->confidence);
+
+    // Le vecchie coordinate del punto vengono stampate in un topic.
+    //robot_pose_pub->publish(old_pose_2D_stamped_msg);
+
     return;
   }
 
@@ -161,7 +165,6 @@ void boundingBoxCallback(
         // Dando per scontato che l'immagine sia codificata su 16 bit e
         //  che sia little endian.
         const uint16_t p_depth = sensor_depth_image->data[i] | (sensor_depth_image->data[i+1] << 8); //'data' è 1 Byte
-        // TODO: Ottenere la 'refined_pcl' direttamente in questa fase
         // Se il punto ha una profondita' non nulla ed e' all'interno della bounding box
         // lo aggiungiamo alla point cloud
         if( p_depth > 0 && roi_rect.contains(cv::Point(cols,rows)) )
@@ -176,8 +179,13 @@ void boundingBoxCallback(
           pcl_point.y = (rows - center_y) * p_depth * constant_y;
           pcl_point.z = depth_image_proc::DepthTraits<uint16_t>::toMeters(p_depth);
 
+          // Aggiungiamo il punto superiore alla thresh per migliorare la qualita'
+          //  del centroide.
           //if( pcl_point.z > z_thresh )
+          //{
           bb_pcl.points.push_back(pcl_point);
+          //}
+
         }
       }
     }
@@ -188,7 +196,7 @@ void boundingBoxCallback(
     ROS_DEBUG("bb_pcl height: %d", bb_pcl.height);
 
     // Trasforma nel sistema di riferimento finale
-    // (prima controlla che sia disponibile la transform)
+    //  (prima controlla che sia disponibile la transform)
     if(!transformer->waitForTransform(TARGET_FRAME_DEF, bb_pcl.header.frame_id,
           sensor_depth_image->header.stamp, ros::Duration(5.0)))
     {
@@ -211,41 +219,42 @@ void boundingBoxCallback(
       if(bb_pcl.points[i].z > z_thresh)
         refined_pcl.points.push_back(bb_pcl.points[i]);
     }
-    ROS_DEBUG("'refined_pcl' %lu points, z_tresh %f", refined_pcl.points.size(), z_thresh);
+    ROS_DEBUG("'refined_pcl' %lu points, z_thresh %f", refined_pcl.points.size(), z_thresh);
     refined_pcl.width = refined_pcl.points.size();
 
     // Calcolo del centroide (nel sistema di riferimento della Depth Map)
-    //StampedPoint stamped_centroid;
-    //stamped_centroid.frame_id_ = sensor_depth_image->header.frame_id;
-    //stamped_centroid.stamp_ = sensor_depth_image->header.stamp;
     Eigen::Vector4d centroid;
-    if ( pcl::compute3DCentroid(refined_pcl, centroid) == 0 )
+    //if ( pcl::compute3DCentroid(refined_pcl, centroid) == 0 )
+    if ( pcl::compute3DCentroid(bb_pcl, centroid) == 0 )
     {
+      ROS_INFO("z_thresh = %f.", z_thresh);
       ROS_ERROR("centroid not computed!");
+
+      // Le vecchie coordinate del punto vengono stampate in un topic.
+      //robot_pose_pub->publish(old_pose_2D_stamped_msg);
+
       return;
     }
 
-    //stamped_centroid.setData( tf::Point(centroid(0), centroid(1), centroid(2)) );
-
-    // Viene pubblicata la refined_pcl
+    // Viene pubblicata la Point Cloud
     sensor_msgs::PointCloud2 bb_pcl_msg;
     pcl::toROSMsg(refined_pcl, bb_pcl_msg);
+    //pcl::toROSMsg(bb_pcl, bb_pcl_msg);
     show_me_point_cloud.publish(bb_pcl_msg);
-
-    // Conversione dal frame della Depth Map al frame finale (target_frame)
-    //StampedPoint stamped_point_end;
-    //transformer->transformPoint(target_frame, stamped_centroid, stamped_point_end);
 
     // Preparazione del msg Pose2DStamped per essere inviato
     projected_game_msgs::Pose2DStamped pose_2D_stamped_msg;
     pose_2D_stamped_msg.header.frame_id = target_frame;
     pose_2D_stamped_msg.header.seq = seq;
-    // XXX: non dovrebbe essere il timestamp della bounding box?
-    //        probabilmente è lo stesso (sincronizzazione)
     pose_2D_stamped_msg.header.stamp = sensor_depth_image->header.stamp;
     pose_2D_stamped_msg.pose.theta = 0.0;
     pose_2D_stamped_msg.pose.x = centroid(0);
     pose_2D_stamped_msg.pose.y = centroid(1);
+
+    // Salvataggio del messaggio Pose2DStamped per continuare
+    //  ad inviare anche quando la confidenza del tracker e' troppo bassa
+    //  o il centroide non e' stato calcolato.
+    //old_pose_2D_stamped_msg = pose_2D_stamped_msg;
 
     // Pubblicazione delle coordinate del punto in un topic
     robot_pose_pub->publish(pose_2D_stamped_msg);
@@ -280,22 +289,22 @@ void boundingBoxCallback(
     //to_ekf_msg.pose.pose.position.y = centroid(1);                  // y measurement BB
     //to_ekf_msg.pose.pose.position.z = 0;                            // z measurement BB
     //{
-      //boost::array<double, 36ul> pose_covariance =
-      //{ 1, 0, 0, 0, 0, 0,                                             // covariance on visual tracking x
-        //0, 1, 0, 0, 0, 0,                                             // covariance on visual tracking y
-        //0, 0, 1, 0, 0, 0,                                             // covariance on visual tracking z
-        //0, 0, 0, 99999, 0, 0,                                         // large covariance on rot x
-        //0, 0, 0, 0, 99999, 0,                                         // large covariance on rot y
-        //0, 0, 0, 0, 0, 99999};                                        // large covariance on rot z
-      //to_ekf_msg.pose.covariance = pose_covariance;
+    //boost::array<double, 36ul> pose_covariance =
+    //{ 1, 0, 0, 0, 0, 0,                                             // covariance on visual tracking x
+    //0, 1, 0, 0, 0, 0,                                             // covariance on visual tracking y
+    //0, 0, 1, 0, 0, 0,                                             // covariance on visual tracking z
+    //0, 0, 0, 99999, 0, 0,                                         // large covariance on rot x
+    //0, 0, 0, 0, 99999, 0,                                         // large covariance on rot y
+    //0, 0, 0, 0, 0, 99999};                                        // large covariance on rot z
+    //to_ekf_msg.pose.covariance = pose_covariance;
     //}
-
-    // after the dispatch the sequence number is incremented
-    seq++;
 
     // Pubblicazione delle coordinate del punto, come se fosse
     //  odometria, per il pacchetto 'robot_pose_ekf', nel topic
     //robot_pose_to_ekf_pub->publish(to_ekf_msg);
+
+    // after the dispatch the sequence number is incremented
+    seq++;
   }
   catch(const std::exception& ex)
   {
@@ -312,6 +321,7 @@ int main(int argc, char** argv)
   std::string target_frame;
   camera_info_received = false;
   min_confidence = MIN_CONFIDENCE;
+  z_thresh = -1.0;
 
   // Check arguments
   if( argc != 2 )
@@ -324,6 +334,14 @@ int main(int argc, char** argv)
     target_frame = argv[1];
   }
   ROS_DEBUG("target_frame = %s.", target_frame.c_str());
+
+  // Inizializzazione del msg old_pose_2D_stamped_msg.
+  //old_pose_2D_stamped_msg.header.frame_id = target_frame;
+  //old_pose_2D_stamped_msg.header.seq = 0;
+  //old_pose_2D_stamped_msg.header.stamp = ros::Time::now();
+  //old_pose_2D_stamped_msg.pose.theta = 0.0;
+  //old_pose_2D_stamped_msg.pose.x = 0;
+  //old_pose_2D_stamped_msg.pose.y = 0;
 
   ros::NodeHandle node, nh_priv("~");
 
@@ -362,7 +380,7 @@ int main(int argc, char** argv)
         target_frame,
         &transformer,
         &robot_pose_pub));
-        //&robot_pose_pub, &robot_pose_to_ekf_pub, &robot_visual_track_2d_pub));
+  //&robot_pose_pub, &robot_pose_to_ekf_pub, &robot_visual_track_2d_pub));
 
   // This callback will be performed once (camera model is costant).
   depth_camera_info_sub = node.subscribe("camera_info", 1, depth_camera_info_cb);
