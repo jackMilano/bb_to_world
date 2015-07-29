@@ -64,6 +64,7 @@ float center_x;
 float center_y;
 float constant_x;
 float constant_y;
+//uint16_t p_depth_thresh;
 
 
 void dynamicReconfCb(bb_to_world::BBToWorldConfig &conf, uint32_t level)
@@ -74,7 +75,7 @@ void dynamicReconfCb(bb_to_world::BBToWorldConfig &conf, uint32_t level)
   ROS_DEBUG("z_thresh has changed: %f.", z_thresh);
 }
 
-void depth_camera_info_cb(const sensor_msgs::CameraInfo::ConstPtr& depth_camera_info)
+void depthCameraInfoCb(const sensor_msgs::CameraInfo::ConstPtr& depth_camera_info)
 {
   // load the camera model structure with the pinhole model
   //  (Intrinsic + distortion coefficients) of the IR camera (depth)
@@ -98,7 +99,7 @@ void depth_camera_info_cb(const sensor_msgs::CameraInfo::ConstPtr& depth_camera_
 
   camera_info_received = true;
 
-  ROS_INFO("depth_camera_info_cb end.");
+  ROS_INFO("depthCameraInfoCb end.");
 
   return;
 }
@@ -121,6 +122,7 @@ void boundingBoxCallback(
     ROS_INFO("Confidence is too low! Confidence = %.2f.\n", b_box->confidence);
 
     // Le vecchie coordinate del punto vengono stampate in un topic.
+    // XXX: nel momento in cui si pubblica bisogna inserirlo nel 'try'
     //robot_pose_pub->publish(old_pose_2D_stamped_msg);
 
     return;
@@ -128,7 +130,7 @@ void boundingBoxCallback(
 
   try
   {
-    // Trasforma le coordinate del'angolo sinistro della Bounding Box,
+    // Trasforma le coordinate dell'angolo sinistro della Bounding Box,
     //  dal frame della Bounding Box, al frame della Depth Map.
     StampedPoint stamped_point_top_left;
     {
@@ -139,13 +141,16 @@ void boundingBoxCallback(
       transformer->transformPoint(sensor_depth_image->header.frame_id, stamped_point_in, stamped_point_top_left);
     }
 
-    // Viene creata una Point Cloud corrispondente alle coordinate della Bounding Box,
-    //  La Point Cloud viene costruita per calcolare il centroide.
+    // Viene creata una Point Cloud a partire dai punti contenuti all'interno della bounding box,
+    //  in modo da poterne estrarre il centroide, per poterlo usare come rappresentativo della posizione
+    //  dell oggetto tracciato.
     pcl::PointCloud<pcl::PointXYZ> bb_pcl;
     bb_pcl.header.frame_id = sensor_depth_image->header.frame_id;
-    bb_pcl.height = 1; // unorganized PC
+    bb_pcl.height = 1;      // unorganized PC
     bb_pcl.is_dense = true; // does not contain NaN/Inf
     {
+      // cv::Rect corrispondente alla Bounding Box nel sistema di riferimento
+      //  dell'immagine di profondita'
       const cv::Rect roi_rect(stamped_point_top_left.getX(), stamped_point_top_left.getY(), b_box->width, b_box->height);
       const int image_size = sensor_depth_image->data.size();
       const int img_cols = sensor_depth_image->width;
@@ -154,6 +159,8 @@ void boundingBoxCallback(
       int rows=-1, cols=-1;
       for(int i=0; i<image_size; i+=2)
       {
+        // per ogni pixel dell'immagine di profondita' viene calcolata la corrispondente
+        //  posizione in termine di righe e colonne
         ++pix;
         ++cols;
         if(pix%img_cols == 0)
@@ -162,32 +169,40 @@ void boundingBoxCallback(
           cols = 0;
         }
 
-        // Dando per scontato che l'immagine sia codificata su 16 bit e
-        //  che sia little endian.
-        const uint16_t p_depth = sensor_depth_image->data[i] | (sensor_depth_image->data[i+1] << 8); //'data' è 1 Byte
+        // L'immagine ottenuta da '/kinect2/sd/image_depth_rect' ha una codifica little endian su 16 bit.
+        //  - little endian: least significant bit all'indirizzo minore
+        //  - 'data' è di tipo uint8, per cui bisogna prendere insieme 2 valori consecutivi per
+        //    ottenere un valore corretto
+        //  - p_depth corrisponde alla profondita' del pixel, in mm, rispetto al 'suolo'
+        //    - 0 corrisponde al terreno
+        const uint16_t p_depth = sensor_depth_image->data[i] | (sensor_depth_image->data[i+1] << 8);
+
         // Se il punto ha una profondita' non nulla ed e' all'interno della bounding box
-        // lo aggiungiamo alla point cloud
+        //  viene aggiunto alla point cloud.
+        // XXX: sphero non appare nella depth map.
         if( p_depth > 0 && roi_rect.contains(cv::Point(cols,rows)) )
+        //if( p_depth > p_depth_thresh && roi_rect.contains(cv::Point(cols,rows)) )
         {
           if(print_debug)
           {
             ROS_DEBUG("point %d %d", cols, rows);
             print_debug = 0;
           }
+
           pcl::PointXYZ pcl_point;
+          // XXX: perche' x e y vengono calcolati in questo modo?
           pcl_point.x = (cols - center_x) * p_depth * constant_x;
           pcl_point.y = (rows - center_y) * p_depth * constant_y;
           pcl_point.z = depth_image_proc::DepthTraits<uint16_t>::toMeters(p_depth);
 
-          // Aggiungiamo il punto superiore alla thresh per migliorare la qualita'
-          //  del centroide.
+          // Aggiungiamo il punto superiore alla thresh per calcolare
+          //  con piu' precisione il centroide.
           //if( pcl_point.z > z_thresh )
           //{
           bb_pcl.points.push_back(pcl_point);
           //}
-
         }
-      }
+      }   // for loop
     }
 
     bb_pcl.width = bb_pcl.points.size();
@@ -195,8 +210,9 @@ void boundingBoxCallback(
     ROS_DEBUG("bb_pcl width: %d", bb_pcl.width);
     ROS_DEBUG("bb_pcl height: %d", bb_pcl.height);
 
-    // Trasforma nel sistema di riferimento finale
-    //  (prima controlla che sia disponibile la transform)
+    // Non appena e' disponibile la transform tra il sistema di riferimento finale
+    //  (world) e quello dell'immagine depth, trasforma la 'bb_pcl' dal secondo
+    //  al primo.
     if(!transformer->waitForTransform(TARGET_FRAME_DEF, bb_pcl.header.frame_id,
           sensor_depth_image->header.stamp, ros::Duration(5.0)))
     {
@@ -208,27 +224,27 @@ void boundingBoxCallback(
     // 'refined_pcl' è una Point Cloud che contiene solamente
     //  i punti dati dalla bounding box del tracker
     //  che abbiano un'elevazione superiore a 'z_thresh'
-    //  in questo modo il calcolo del centroide diventa più corretto
+    //  in questo modo il calcolo del centroide diventa più preciso.
     pcl::PointCloud<pcl::PointXYZ> refined_pcl;
     refined_pcl.header.frame_id = TARGET_FRAME_DEF;
-    refined_pcl.height = 1; // unorganized PC
-    refined_pcl.is_dense = true; // does not contain NaN/Inf
-
+    refined_pcl.height = 1;       // unorganized PC
+    refined_pcl.is_dense = true;  // does not contain NaN/Inf
     for(int i = 0; i < bb_pcl.points.size(); ++i)
     {
       if(bb_pcl.points[i].z > z_thresh)
+      {
         refined_pcl.points.push_back(bb_pcl.points[i]);
+      }
     }
     ROS_DEBUG("'refined_pcl' %lu points, z_thresh %f", refined_pcl.points.size(), z_thresh);
     refined_pcl.width = refined_pcl.points.size();
 
-    // Calcolo del centroide (nel sistema di riferimento della Depth Map)
+    // Calcolo del centroide (nel sistema di riferimento finale)
     Eigen::Vector4d centroid;
-    //if ( pcl::compute3DCentroid(refined_pcl, centroid) == 0 )
-    if ( pcl::compute3DCentroid(bb_pcl, centroid) == 0 )
+    if ( pcl::compute3DCentroid(refined_pcl, centroid) == 0 )
+    //if ( pcl::compute3DCentroid(bb_pcl, centroid) == 0 )
     {
-      ROS_INFO("z_thresh = %f.", z_thresh);
-      ROS_ERROR("centroid not computed!");
+      ROS_ERROR("centroid not computed! z_thresh = %.2f. refined_pcl.points.size() = %d.", z_thresh, (int) refined_pcl.points.size());
 
       // Le vecchie coordinate del punto vengono stampate in un topic.
       //robot_pose_pub->publish(old_pose_2D_stamped_msg);
@@ -322,6 +338,7 @@ int main(int argc, char** argv)
   camera_info_received = false;
   min_confidence = MIN_CONFIDENCE;
   z_thresh = -1.0;
+  //p_depth_thresh = depth_image_proc::DepthTraits<uint16_t>::fromMeters(z_thresh);
 
   // Check arguments
   if( argc != 2 )
@@ -346,21 +363,22 @@ int main(int argc, char** argv)
   ros::NodeHandle node, nh_priv("~");
 
   double rate_hz;
-  nh_priv.param("z_threshold", z_thresh, -1.0);
   nh_priv.param("min_confidence", min_confidence, 0.5);
   nh_priv.param("rate", rate_hz, 60.0);
+  nh_priv.param("z_threshold", z_thresh, -1.0);
 
   dynamic_reconfigure::Server<bb_to_world::BBToWorldConfig> dynamic_reconf_server;
   dynamic_reconf_server.setCallback(boost::bind(dynamicReconfCb, _1, _2));
 
-  // Sincronizzazione tra 2 canali di ingresso ('immagine' e 'bounding box')
+  // Sincronizzazione tra 2 canali di ingresso
+  //  (l'immagine di profondita' e la posizione restituita dal tracker visuale)
   message_filters::Subscriber<sensor_msgs::Image> image_sub(node, "image", 1);
   message_filters::Subscriber<tld_msgs::BoundingBox> b_box_sub(node, "b_box", 1);
   message_filters::Synchronizer<MySyncPolicy> sync(MySyncPolicy(10), image_sub, b_box_sub);
 
   tf::TransformListener transformer;
 
-  // Viene pubblicata la posa 2D del robot ottenuta dal tracking visuale,
+  // Viene pubblicata la posa 2D del robot, ottenuta dal tracking visuale,
   //  convertita nelle cordinate del mondo.
   ros::Publisher robot_pose_pub = node.advertise<projected_game_msgs::Pose2DStamped> ("robot_2d_pose", 1);
 
@@ -368,8 +386,7 @@ int main(int argc, char** argv)
   //  in modo da poterla inviare al nodo 'robot_pose_ekf' per la sensor fusion.
   //ros::Publisher robot_pose_to_ekf_pub = node.advertise<nav_msgs::Odometry> ("gps", 1);
 
-
-  // Viene pubblicata la posa 2D del robot ottenuta dal tracking visuale,
+  // Viene pubblicata la posa 2D del robot, ottenuta dal tracking visuale,
   //  convertita nelle cordinate del mondo, assieme alla confidenza.
   //ros::Publisher robot_visual_track_2d_pub = node.advertise<visual_tracking_msgs::VisualTrack2DStamped> ("tracker_2d_pose", 1);
 
@@ -383,7 +400,7 @@ int main(int argc, char** argv)
   //&robot_pose_pub, &robot_pose_to_ekf_pub, &robot_visual_track_2d_pub));
 
   // This callback will be performed once (camera model is costant).
-  depth_camera_info_sub = node.subscribe("camera_info", 1, depth_camera_info_cb);
+  depth_camera_info_sub = node.subscribe("camera_info", 1, depthCameraInfoCb);
 
   show_me_point_cloud = node.advertise<sensor_msgs::PointCloud2>("bb_point_cloud", 1);
 
@@ -392,7 +409,8 @@ int main(int argc, char** argv)
   // 'ros::Rate' makes a best effort at mantaining a particular rate for a loop.
   ros::Rate rate(rate_hz);
 
-  // Non appena sono arrivate le informazioni sulla camera.
+  // Non appena sono arrivate le informazioni sulla camera,
+  //  attiviamo la boundingBoxCallback.
   while(!camera_info_received)
   {
     ros::spinOnce();
