@@ -372,8 +372,8 @@ int main(int argc, char** argv)
 
   // Sincronizzazione tra 2 canali di ingresso
   //  (l'immagine di profondita' e la posizione restituita dal tracker visuale)
-  message_filters::Subscriber<sensor_msgs::Image> image_sub(node, "image", 1);
-  message_filters::Subscriber<tld_msgs::BoundingBox> b_box_sub(node, "b_box", 1);
+  message_filters::Subscriber<sensor_msgs::Image> image_sub(node, "camera/image", 1);
+  message_filters::Subscriber<tld_msgs::BoundingBox> b_box_sub(node, "tracker/bounding_box", 1);
   message_filters::Synchronizer<MySyncPolicy> sync(MySyncPolicy(10), image_sub, b_box_sub);
 
   tf::TransformListener transformer;
@@ -400,7 +400,7 @@ int main(int argc, char** argv)
   //&robot_pose_pub, &robot_pose_to_ekf_pub, &robot_visual_track_2d_pub));
 
   // This callback will be performed once (camera model is costant).
-  depth_camera_info_sub = node.subscribe("camera_info", 1, depthCameraInfoCb);
+  depth_camera_info_sub = node.subscribe("camera/camera_info", 1, depthCameraInfoCb);
 
   show_me_point_cloud = node.advertise<sensor_msgs::PointCloud2>("bb_point_cloud", 1);
 

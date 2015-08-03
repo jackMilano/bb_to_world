@@ -1,6 +1,6 @@
 <launch>
 
-  <arg name="output_frame" default="/world"/>
+  <arg name="output_frame" default="world"/>
   <arg name="min_confidence" default="0.5"/>
   <arg name="z_threshold" default="-1.0"/>
   <arg name="depth_image" default="/kinect2/sd/image_depth_rect"/>
@@ -12,8 +12,6 @@
     <remap from="camera/camera_info" to="$(arg depth_camera_info)" />
     <param name="z_threshold" value="$(arg z_threshold)" />
     <param name="min_confidence" value="$(arg min_confidence)" />
-  </node>
-
   </node>
 
 </launch>

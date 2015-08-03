@@ -1,9 +1,7 @@
 <launch>
   <arg name="image_topic" default="/kinect2/qhd/image_color_rect"/>
-  <arg name="image_topic" default="/kinect2/qhd/image_color_rect"/>
   <arg name="depth_topic" default="/kinect2/qhd/image_depth_rect"/>
   <arg name="depth_camera_info" default="/kinect2/qhd/camera_info"/>
-  <arg name="min_confidence" default="0.7"/>
   <arg name="z_threshold" default="0.04"/>
   <arg name="load_model" default="false"/>
   <arg name="min_confidence" default="0.65"/>
