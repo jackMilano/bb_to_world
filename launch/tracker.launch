@@ -1,11 +1,13 @@
 <launch>
   <arg name="image_topic" default="/kinect2/qhd/image_color_rect"/>
+  <arg name="depth_topic" default="/kinect2/qhd/image_depth_rect"/>
+  <arg name="depth_camera_info" default="/kinect2/qhd/camera_info"/>
   <arg name="min_confidence" default="0.7"/>
   <arg name="z_threshold" default="0.04"/>
   <arg name="load_model" default="false"/>
   <arg name="model_file" default=""/>
   <arg name="output_frame" default="world"/>
-  <arg name="publish_world_tf" default="false"/>
+  <arg name="publish_world_tf" default="true"/>
 
   <include file="$(find opt_calibration)/launch/opt_calibration_results.launch" if="$(arg publish_world_tf)"/>
 
@@ -16,6 +18,8 @@
   </include>
 
   <include file="$(find bb_to_world)/launch/bb_to_world.launch">
+    <arg name="depth_image" value="$(arg depth_topic)"/>
+    <arg name="depth_camera_info" value="$(arg depth_camera_info)"/>
     <arg name="output_frame" value="$(arg output_frame)"/>
     <arg name="min_confidence" value="$(arg min_confidence)"/>
     <arg name="z_threshold" value="$(arg z_threshold)"/>

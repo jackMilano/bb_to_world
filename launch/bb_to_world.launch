@@ -1,13 +1,17 @@
 <launch>
 
-  <arg name="end_frame" default="/world"/>
+  <arg name="output_frame" default="/world"/>
+  <arg name="min_confidence" default="0.5"/>
+  <arg name="z_threshold" default="-1.0"/>
+  <arg name="depth_image" default="/kinect2/sd/image_depth_rect"/>
+  <arg name="depth_camera_info" default="/kinect2/sd/camera_info"/>
 
-  <node name="bb_to_world_node" pkg="bb_to_world" type="bb_to_world_node" args="$(arg end_frame)" output="screen">
+  <node name="bb_to_world_node" pkg="bb_to_world" type="bb_to_world_node" args="$(arg output_frame)" output="screen">
     <remap from="tracker/bounding_box" to="tld_tracked_object"/>
-    <remap from="camera/image" to="/kinect2/sd/image_depth_rect" />
-    <remap from="cameta/camera_info" to="/kinect2/sd/camera_info" />
-    <param name="z_threshold" value="0.02" />
-    <param name="min_confidence" value="0.4" />
+    <remap from="camera/image" to="$(arg depth_image)" />
+    <remap from="camera/camera_info" to="$(arg depth_camera_info)" />
+    <param name="z_threshold" value="$(arg z_threshold)" />
+    <param name="min_confidence" value="$(arg min_confidence)" />
   </node>
 
 </launch>
