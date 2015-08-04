@@ -11,6 +11,7 @@
 
 #include <geometry_msgs/Point.h>
 #include <geometry_msgs/PointStamped.h>
+#include <geometry_msgs/PoseWithCovarianceStamped.h>
 #include <nav_msgs/Odometry.h>
 #include <projected_game_msgs/Pose2DStamped.h>
 #include <sensor_msgs/CameraInfo.h>
@@ -18,7 +19,6 @@
 #include <sensor_msgs/PointCloud2.h>
 #include <std_msgs/Header.h>
 #include <tld_msgs/BoundingBox.h>
-//#include <visual_tracking_msgs/VisualTrack2DStamped.h>
 
 // PCL libraries
 #include <pcl/common/centroid.h>
@@ -109,9 +109,8 @@ void boundingBoxCallback(
     const tld_msgs::BoundingBox::ConstPtr& b_box,
     const std::string target_frame,
     const tf::TransformListener* transformer,
-    const ros::Publisher* robot_pose_pub)
-  //const ros::Publisher* robot_pose_to_ekf_pub,
-  //const ros::Publisher* robot_visual_track_2d_pub)
+    const ros::Publisher* robot_pose_pub,
+    const ros::Publisher* robot_pose_to_localization_pub)
 {
   static int seq; // Sequence number of the packages sent from this node.
 
@@ -181,7 +180,7 @@ void boundingBoxCallback(
         //  viene aggiunto alla point cloud.
         // XXX: sphero non appare nella depth map.
         if( p_depth > 0 && roi_rect.contains(cv::Point(cols,rows)) )
-        //if( p_depth > p_depth_thresh && roi_rect.contains(cv::Point(cols,rows)) )
+          //if( p_depth > p_depth_thresh && roi_rect.contains(cv::Point(cols,rows)) )
         {
           if(print_debug)
           {
@@ -242,7 +241,7 @@ void boundingBoxCallback(
     // Calcolo del centroide (nel sistema di riferimento finale)
     Eigen::Vector4d centroid;
     if ( pcl::compute3DCentroid(refined_pcl, centroid) == 0 )
-    //if ( pcl::compute3DCentroid(bb_pcl, centroid) == 0 )
+      //if ( pcl::compute3DCentroid(bb_pcl, centroid) == 0 )
     {
       ROS_ERROR("centroid not computed! z_thresh = %.2f. refined_pcl.points.size() = %d.", z_thresh, (int) refined_pcl.points.size());
 
@@ -275,15 +274,37 @@ void boundingBoxCallback(
     // Pubblicazione delle coordinate del punto in un topic
     robot_pose_pub->publish(pose_2D_stamped_msg);
 
-    // Preparazione del msg VisualTrack2DStamped per essere inviato
-    //visual_tracking_msgs::VisualTrack2DStamped visual_track_2d_stamped_msg;
-    //visual_track_2d_stamped_msg.header = pose_2D_stamped_msg.header;
-    //visual_track_2d_stamped_msg.pose = pose_2D_stamped_msg;
-    //visual_track_2d_stamped_msg.confidence = b_box->confidence;
+    // Preparazione del msg PoseWithCovarianceStamped per essere inviato
+    geometry_msgs::PoseWithCovarianceStamped geom_pose_2D_stamped_msg;
+    geom_pose_2D_stamped_msg.header.frame_id = target_frame;
+    geom_pose_2D_stamped_msg.header.seq = seq;
+    geom_pose_2D_stamped_msg.header.stamp = sensor_depth_image->header.stamp;
+    geom_pose_2D_stamped_msg.pose.pose.orientation.w = 1;
+    geom_pose_2D_stamped_msg.pose.pose.orientation.x = 0;
+    geom_pose_2D_stamped_msg.pose.pose.orientation.y = 0;
+    geom_pose_2D_stamped_msg.pose.pose.orientation.z = 0;
+    geom_pose_2D_stamped_msg.pose.pose.position.x = centroid(0);
+    geom_pose_2D_stamped_msg.pose.pose.position.y = centroid(1);
+    geom_pose_2D_stamped_msg.pose.pose.position.z = 0;
+    {
+      // XXX: il pacchetto arriva a robot_localization
+      boost::array<double, 36ul> pose_covariance =
+      { 1, 0, 0, 0, 0, 0,                                             // covariance on visual tracking x
+        0, 1, 0, 0, 0, 0,                                             // covariance on visual tracking y
+        0, 0, 1, 0, 0, 0,                                             // covariance on visual tracking z
+        0, 0, 0, 1000, 0, 0,                                          // large covariance on rot x
+        0, 0, 0, 0, 1000, 0,                                          // large covariance on rot y
+        0, 0, 0, 0, 0, 1000};                                         // large covariance on rot z
+      geom_pose_2D_stamped_msg.pose.covariance = pose_covariance;
+    }
 
-    // Pubblicazione delle coordinate del punto e della confidenza
-    //  con cui è calcolato in un topic
-    //robot_visual_track_2d_pub->publish(visual_track_2d_stamped_msg);
+    // Salvataggio del messaggio PoseWithCovarianceStamped per continuare
+    //  ad inviare anche quando la confidenza del tracker e' troppo bassa
+    //  o il centroide non e' stato calcolato.
+    //old_geom_pose_2D_stamped_msg = geom_pose_2D_stamped_msg;
+
+    // Pubblicazione delle coordinate del punto in un topic
+    robot_pose_pub->publish(geom_pose_2D_stamped_msg);
 
     // Building GPS sensor message
     //  (from: http://wiki.ros.org/robot_pose_ekf/Tutorials/AddingGpsSensor)
@@ -383,6 +404,10 @@ int main(int argc, char** argv)
   ros::Publisher robot_pose_pub = node.advertise<projected_game_msgs::Pose2DStamped> ("robot_2d_pose", 1);
 
   // Viene pubblicata la posa 2D del robot, come se fosse un messaggio di odometria,
+  //  in modo da poterla inviare al nodo 'robot_localization' per la sensor fusion.
+  ros::Publisher robot_pose_to_localization_pub = node.advertise<geometry_msgs::PoseWithCovarianceStamped> ("robot_2d_geometry_pose", 1);
+
+  // Viene pubblicata la posa 2D del robot, come se fosse un messaggio di odometria,
   //  in modo da poterla inviare al nodo 'robot_pose_ekf' per la sensor fusion.
   //ros::Publisher robot_pose_to_ekf_pub = node.advertise<nav_msgs::Odometry> ("gps", 1);
 
@@ -396,8 +421,8 @@ int main(int argc, char** argv)
         _1, _2,
         target_frame,
         &transformer,
-        &robot_pose_pub));
-  //&robot_pose_pub, &robot_pose_to_ekf_pub, &robot_visual_track_2d_pub));
+        &robot_pose_pub,
+        &robot_pose_to_localization_pub));
 
   // This callback will be performed once (camera model is costant).
   depth_camera_info_sub = node.subscribe("camera/camera_info", 1, depthCameraInfoCb);
