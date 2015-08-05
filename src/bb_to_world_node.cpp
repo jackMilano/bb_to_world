@@ -304,7 +304,7 @@ void boundingBoxCallback(
     //old_geom_pose_2D_stamped_msg = geom_pose_2D_stamped_msg;
 
     // Pubblicazione delle coordinate del punto in un topic
-    robot_pose_pub->publish(geom_pose_2D_stamped_msg);
+    robot_pose_to_localization_pub->publish(geom_pose_2D_stamped_msg);
 
     // Building GPS sensor message
     //  (from: http://wiki.ros.org/robot_pose_ekf/Tutorials/AddingGpsSensor)
@@ -403,7 +403,7 @@ int main(int argc, char** argv)
   //  convertita nelle cordinate del mondo.
   ros::Publisher robot_pose_pub = node.advertise<projected_game_msgs::Pose2DStamped> ("robot_2d_pose", 1);
 
-  // Viene pubblicata la posa 2D del robot, come se fosse un messaggio di odometria,
+  // Viene pubblicata la posa 2D del robot, come se fosse un messaggio PoseWithCovarianceStamped,
   //  in modo da poterla inviare al nodo 'robot_localization' per la sensor fusion.
   ros::Publisher robot_pose_to_localization_pub = node.advertise<geometry_msgs::PoseWithCovarianceStamped> ("robot_2d_geometry_pose", 1);
 
@@ -429,7 +429,7 @@ int main(int argc, char** argv)
 
   show_me_point_cloud = node.advertise<sensor_msgs::PointCloud2>("bb_point_cloud", 1);
 
-  sleep(5); //sleep 5 seconds. Wait 'openni_launch' to come up.
+  sleep(2); //sleep 2 seconds. Wait 'openni_launch' to come up.
 
   // 'ros::Rate' makes a best effort at mantaining a particular rate for a loop.
   ros::Rate rate(rate_hz);
