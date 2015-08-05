@@ -289,12 +289,12 @@ void boundingBoxCallback(
     {
       // XXX: il pacchetto arriva a robot_localization
       boost::array<double, 36ul> pose_covariance =
-      { 1, 0, 0, 0, 0, 0,                                             // covariance on visual tracking x
-        0, 1, 0, 0, 0, 0,                                             // covariance on visual tracking y
-        0, 0, 1, 0, 0, 0,                                             // covariance on visual tracking z
-        0, 0, 0, 1000, 0, 0,                                          // large covariance on rot x
-        0, 0, 0, 0, 1000, 0,                                          // large covariance on rot y
-        0, 0, 0, 0, 0, 1000};                                         // large covariance on rot z
+      { 1e-3, 0, 0, 0, 0, 0,                                             // covariance on visual tracking x
+        0, 1e-3, 0, 0, 0, 0,                                             // covariance on visual tracking y
+        0, 0, 1e-3, 0, 0, 0,                                             // covariance on visual tracking z
+        0, 0, 0, 1e6, 0, 0,                                          // large covariance on rot x
+        0, 0, 0, 0, 1e6, 0,                                          // large covariance on rot y
+        0, 0, 0, 0, 0, 1e6};                                         // large covariance on rot z
       geom_pose_2D_stamped_msg.pose.covariance = pose_covariance;
     }
 
