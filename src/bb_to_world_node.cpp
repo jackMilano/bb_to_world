@@ -43,7 +43,8 @@
 // Defines
 #define MIN_CONFIDENCE 0.1f
 #define TARGET_FRAME_DEF "/world"
-#define PIXEL_DEPTH_TOO_HIGH 500 // millimeters
+#define POINT_TOO_HIGH 0.5 // meters
+#define WAIT_TRANS_TIME 5.0
 
 // Typedefs and Enums
 // XXX: attenzione sta venendo utilizzata la politica 'ExactTime'.
@@ -141,16 +142,28 @@ void boundingBoxCallback(
       transformer->transformPoint(sensor_depth_image->header.frame_id, stamped_point_in, stamped_point_top_left);
     }
 
-    // Viene creata una Point Cloud a partire dai punti contenuti all'interno della bounding box,
+    // bb_pcl e' la Point Cloud costruita a partire dai punti contenuti all'interno della bounding box,
     //  in modo da poterne estrarre il centroide, per poterlo usare come rappresentativo della posizione
     //  dell oggetto tracciato.
     pcl::PointCloud<pcl::PointXYZ> bb_pcl;
-    bb_pcl.header.frame_id = sensor_depth_image->header.frame_id;
+    bb_pcl.header.frame_id = target_frame;
+    //bb_pcl.header.frame_id = sensor_depth_image->header.frame_id;
     bb_pcl.height = 1;      // unorganized PC
     bb_pcl.is_dense = true; // does not contain NaN/Inf
+
+    // Non appena e' disponibile la transform tra il sistema di riferimento finale
+    // (world) e quello dell'immagine depth, si procede all'operazione di estrazione
+    // dei punti.
+    if(!transformer->waitForTransform(target_frame, bb_pcl.header.frame_id,
+          sensor_depth_image->header.stamp, ros::Duration(WAIT_TRANS_TIME)))
+    {
+      ROS_ERROR("Wait for transform timed out.");
+      return;
+    }
+
     {
       // cv::Rect corrispondente alla Bounding Box nel sistema di riferimento
-      //  dell'immagine di profondita'
+      //  dell'immagine di profondita' (optical frame)
       const cv::Rect roi_rect(stamped_point_top_left.getX(), stamped_point_top_left.getY(), b_box->width, b_box->height);
       const int image_size = sensor_depth_image->data.size();
       const int img_cols = sensor_depth_image->width;
@@ -173,17 +186,13 @@ void boundingBoxCallback(
         //  - little endian: least significant bit all'indirizzo minore
         //  - 'data' è di tipo uint8, per cui bisogna prendere insieme 2 valori consecutivi per
         //    ottenere un valore corretto
-        //  - p_depth corrisponde alla profondita' del pixel, in mm, rispetto al 'suolo'
-        //    - 0 corrisponde al terreno
+        //  - p_depth corrisponde alla profondita' del pixel, in mm, rispetto all'optical_frame
         const uint16_t p_depth = sensor_depth_image->data[i] | (sensor_depth_image->data[i+1] << 8);
 
-        // Il punto viene aggiunto alla bounding box se:
-        // - è posto all'interno della bounding box
-        // - ha una profondità non nulla
-        // - non è in una posizione troppo elevata (per evitare le semi-collisioni)
-        //  viene aggiunto alla point cloud.
-          //if( p_depth > p_depth_thresh && roi_rect.contains(cv::Point(cols,rows)) )
-        if( roi_rect.contains(cv::Point(cols,rows)) && p_depth > 0 && p_depth < PIXEL_DEPTH_TOO_HIGH )
+        // Il punto viene aggiunto alla point cloud se:
+        // 1. è all'interno della bounding box
+        // 2. non è attaccato alla camera (p_depth = 0)
+        if( roi_rect.contains(cv::Point(cols,rows)) && p_depth > 0 )
         {
           if(print_debug)
           {
@@ -191,72 +200,95 @@ void boundingBoxCallback(
             print_debug = 0;
           }
 
-          pcl::PointXYZ pcl_point;
-          pcl_point.x = (cols - center_x) * p_depth * constant_x;
-          pcl_point.y = (rows - center_y) * p_depth * constant_y;
-          pcl_point.z = depth_image_proc::DepthTraits<uint16_t>::toMeters(p_depth);
+          //pcl::PointXYZ pcl_point;
+          //pcl_point.x = (cols - center_x) * p_depth * constant_x;
+          //pcl_point.y = (rows - center_y) * p_depth * constant_y;
+          //pcl_point.z = depth_image_proc::DepthTraits<uint16_t>::toMeters(p_depth);
 
-          // Aggiungiamo il punto superiore alla thresh per calcolare
-          //  con piu' precisione il centroide.
-          //if( pcl_point.z > z_thresh )
-          //{
-          bb_pcl.points.push_back(pcl_point);
-          //}
+          StampedPoint stamped_point_bounding_box_world;
+          {
+            // Vengono calcolate le coordinate tridimensionali del punto.
+            const tfScalar tf_x = (cols - center_x) * p_depth * constant_x;
+            const tfScalar tf_y = (rows - center_y) * p_depth * constant_y;
+            const tfScalar tf_z = depth_image_proc::DepthTraits<uint16_t>::toMeters(p_depth); // From mm to m.
+            const tf::Point tf_point_bounding_box_optical(tf_x, tf_y, tf_z);
+
+            // Dal sistema di riferimento dell'immagine di profondita'
+            // si passa al sistema di riferimento del 'target_frame'.
+            StampedPoint stamped_point_bounding_box_optical;
+            stamped_point_bounding_box_optical.frame_id_ = sensor_depth_image->header.frame_id;
+            stamped_point_bounding_box_optical.stamp_ = sensor_depth_image->header.stamp;
+            stamped_point_bounding_box_optical.setData( tf_point_bounding_box_optical );
+            transformer->transformPoint(target_frame, stamped_point_bounding_box_optical, stamped_point_bounding_box_world);
+          }
+
+          pcl::PointXYZ pcl_point;
+          pcl_point.x = stamped_point_bounding_box_world.getX();
+          pcl_point.y = stamped_point_bounding_box_world.getY();
+          pcl_point.z = stamped_point_bounding_box_world.getZ();
+
+          // come condizione aggiuntiva il punto viene aggiunto alla bounding box se
+          // 1. non è in una posizione troppo elevata rispetto al suolo
+          //  - l'occlusione parziale della bounding box a causa del passaggio
+          //    di una persona causa il calcolo errato della posizione del centroide
+          // 2. l'altezza supera una certa soglia 'z_thresh'
+          //  - in questo modo il calcolo del centroide diventa piu' preciso
+          if( pcl_point.z < POINT_TOO_HIGH  && pcl_point.z > z_thresh )
+          {
+            bb_pcl.points.push_back(pcl_point);
+          }
         }
       }   // for loop
     }
 
     bb_pcl.width = bb_pcl.points.size();
-    ROS_DEBUG("points size: %lu", bb_pcl.points.size());
+    ROS_DEBUG("bb_pcl points size: %lu", bb_pcl.points.size());
     ROS_DEBUG("bb_pcl width: %d", bb_pcl.width);
     ROS_DEBUG("bb_pcl height: %d", bb_pcl.height);
 
     // Non appena e' disponibile la transform tra il sistema di riferimento finale
     //  (world) e quello dell'immagine depth, trasforma la 'bb_pcl' dal secondo
     //  al primo.
-    if(!transformer->waitForTransform(target_frame, bb_pcl.header.frame_id,
-          sensor_depth_image->header.stamp, ros::Duration(5.0)))
-    {
-      ROS_ERROR("Wait for transform timed out.");
-      return;
-    }
-    pcl_ros::transformPointCloud(target_frame, bb_pcl, bb_pcl, *transformer);
+    //if(!transformer->waitForTransform(target_frame, bb_pcl.header.frame_id,
+    //      sensor_depth_image->header.stamp, ros::Duration(WAIT_TRANS_TIME)))
+    //{
+    //  ROS_ERROR("Wait for transform timed out.");
+    //  return;
+    //}
+    //pcl_ros::transformPointCloud(target_frame, bb_pcl, bb_pcl, *transformer);
 
     // 'refined_pcl' è una Point Cloud che contiene solamente
     //  i punti dati dalla bounding box del tracker
     //  che abbiano un'elevazione superiore a 'z_thresh'
     //  in questo modo il calcolo del centroide diventa più preciso.
-    pcl::PointCloud<pcl::PointXYZ> refined_pcl;
-    refined_pcl.header.frame_id = target_frame;
-    refined_pcl.height = 1;       // unorganized PC
-    refined_pcl.is_dense = true;  // does not contain NaN/Inf
-    for(int i = 0; i < bb_pcl.points.size(); ++i)
-    {
-      if(bb_pcl.points[i].z > z_thresh)
-      {
-        refined_pcl.points.push_back(bb_pcl.points[i]);
-      }
-    }
-    ROS_DEBUG("'refined_pcl' %lu points, z_thresh %f", refined_pcl.points.size(), z_thresh);
-    refined_pcl.width = refined_pcl.points.size();
+    //pcl::PointCloud<pcl::PointXYZ> refined_pcl;
+    //refined_pcl.header.frame_id = target_frame;
+    //refined_pcl.height = 1;       // unorganized PC
+    //refined_pcl.is_dense = true;  // does not contain NaN/Inf
+    //for(int i = 0; i < bb_pcl.points.size(); ++i)
+    //{
+    //  if(bb_pcl.points[i].z > z_thresh)
+    //  {
+    //    refined_pcl.points.push_back(bb_pcl.points[i]);
+    //  }
+    //}
+    //ROS_DEBUG("'refined_pcl' %lu points, z_thresh %f", refined_pcl.points.size(), z_thresh);
+    //refined_pcl.width = refined_pcl.points.size();
 
-    // Calcolo del centroide (nel sistema di riferimento finale)
+    // Se il calcolo del centroide fallisce, non viene pubblicato niente.
+    //if ( pcl::compute3DCentroid(refined_pcl, centroid) == 0 )
     Eigen::Vector4d centroid;
-    if ( pcl::compute3DCentroid(refined_pcl, centroid) == 0 )
-      //if ( pcl::compute3DCentroid(bb_pcl, centroid) == 0 )
+    if ( pcl::compute3DCentroid(bb_pcl, centroid) == 0 )
     {
-      ROS_ERROR("centroid not computed! z_thresh = %.2f. refined_pcl.points.size() = %d.", z_thresh, (int) refined_pcl.points.size());
-
-      // Le vecchie coordinate del punto vengono stampate in un topic.
-      //robot_pose_pub->publish(old_pose_2D_stamped_msg);
+      ROS_ERROR("centroid not computed! z_thresh = %.2f. bb_pcl.points.size() = %d.", z_thresh, (int) bb_pcl.points.size());
 
       return;
     }
 
     // Viene pubblicata la Point Cloud
     sensor_msgs::PointCloud2 bb_pcl_msg;
-    pcl::toROSMsg(refined_pcl, bb_pcl_msg);
-    //pcl::toROSMsg(bb_pcl, bb_pcl_msg);
+    //pcl::toROSMsg(refined_pcl, bb_pcl_msg);
+    pcl::toROSMsg(bb_pcl, bb_pcl_msg);
     show_me_point_cloud.publish(bb_pcl_msg);
 
     // Preparazione del msg Pose2DStamped per essere inviato
@@ -267,11 +299,6 @@ void boundingBoxCallback(
     pose_2D_stamped_msg.pose.theta = 0.0;
     pose_2D_stamped_msg.pose.x = centroid(0);
     pose_2D_stamped_msg.pose.y = centroid(1);
-
-    // Salvataggio del messaggio Pose2DStamped per continuare
-    //  ad inviare anche quando la confidenza del tracker e' troppo bassa
-    //  o il centroide non e' stato calcolato.
-    //old_pose_2D_stamped_msg = pose_2D_stamped_msg;
 
     // Pubblicazione delle coordinate del punto in un topic
     robot_pose_pub->publish(pose_2D_stamped_msg);
@@ -291,59 +318,25 @@ void boundingBoxCallback(
     {
       // XXX: il pacchetto arriva a robot_localization
       boost::array<double, 36ul> pose_covariance =
-      { 1e-3, 0, 0, 0, 0, 0,                                             // covariance on visual tracking x
-        0, 1e-3, 0, 0, 0, 0,                                             // covariance on visual tracking y
-        0, 0, 1e-3, 0, 0, 0,                                             // covariance on visual tracking z
+      { 1e-9, 0, 0, 0, 0, 0,                                         // covariance on visual tracking x
+        0, 1e-9, 0, 0, 0, 0,                                         // covariance on visual tracking y
+        0, 0, 1e-9, 0, 0, 0,                                         // covariance on visual tracking z
         0, 0, 0, 1e6, 0, 0,                                          // large covariance on rot x
         0, 0, 0, 0, 1e6, 0,                                          // large covariance on rot y
         0, 0, 0, 0, 0, 1e6};                                         // large covariance on rot z
       geom_pose_2D_stamped_msg.pose.covariance = pose_covariance;
     }
 
-    // Salvataggio del messaggio PoseWithCovarianceStamped per continuare
-    //  ad inviare anche quando la confidenza del tracker e' troppo bassa
-    //  o il centroide non e' stato calcolato.
-    //old_geom_pose_2D_stamped_msg = geom_pose_2D_stamped_msg;
-
     // Pubblicazione delle coordinate del punto in un topic
     robot_pose_to_localization_pub->publish(geom_pose_2D_stamped_msg);
 
-    // Building GPS sensor message
-    //  (from: http://wiki.ros.org/robot_pose_ekf/Tutorials/AddingGpsSensor)
-    //  'robot_pose_ekf' può ricevere le misure GPS sotto forma di un
-    //  messaggio di odometria.
-    //  I campi che vengono letti dal pacchetto sono 'pose' e 'header.stamp'.
-    //  We use the GPS sensor message to send the visual tracker's position
-    //  measurement.
-    //nav_msgs::Odometry to_ekf_msg;
-    //to_ekf_msg.header.frame_id = "/base_footprint";                 // the tracked robot frame
-    //to_ekf_msg.header.seq = seq;                                    // sequence number
-    //to_ekf_msg.header.stamp = sensor_depth_image->header.stamp;     // time of GPS measurement
-    ////to_ekf_msg.child_frame_id = "";                               // XXX: do we need to set the 'child_frame_id'?
-    //to_ekf_msg.pose.pose.orientation.x = 0;                         // identity quaternion
-    //to_ekf_msg.pose.pose.orientation.y = 0;                         // identity quaternion
-    //to_ekf_msg.pose.pose.orientation.z = 0;                         // identity quaternion
-    //to_ekf_msg.pose.pose.orientation.w = 1;                         // identity quaternion
-    //to_ekf_msg.pose.pose.position.x = centroid(0);                  // x measurement BB
-    //to_ekf_msg.pose.pose.position.y = centroid(1);                  // y measurement BB
-    //to_ekf_msg.pose.pose.position.z = 0;                            // z measurement BB
-    //{
-    //boost::array<double, 36ul> pose_covariance =
-    //{ 1, 0, 0, 0, 0, 0,                                             // covariance on visual tracking x
-    //0, 1, 0, 0, 0, 0,                                             // covariance on visual tracking y
-    //0, 0, 1, 0, 0, 0,                                             // covariance on visual tracking z
-    //0, 0, 0, 99999, 0, 0,                                         // large covariance on rot x
-    //0, 0, 0, 0, 99999, 0,                                         // large covariance on rot y
-    //0, 0, 0, 0, 0, 99999};                                        // large covariance on rot z
-    //to_ekf_msg.pose.covariance = pose_covariance;
-    //}
-
-    // Pubblicazione delle coordinate del punto, come se fosse
-    //  odometria, per il pacchetto 'robot_pose_ekf', nel topic
-    //robot_pose_to_ekf_pub->publish(to_ekf_msg);
-
     // after the dispatch the sequence number is incremented
     seq++;
+  }
+  catch(const tf::TransformException& tf_ex)
+  {
+    ROS_ERROR("%s", tf_ex.what());
+    ros::Duration(1.0).sleep();
   }
   catch(const std::exception& ex)
   {
@@ -361,7 +354,6 @@ int main(int argc, char** argv)
   camera_info_received = false;
   min_confidence = MIN_CONFIDENCE;
   z_thresh = -1.0;
-  //p_depth_thresh = depth_image_proc::DepthTraits<uint16_t>::fromMeters(z_thresh);
 
   // Check arguments
   if( argc != 2 )
@@ -374,14 +366,6 @@ int main(int argc, char** argv)
     target_frame = argv[1];
   }
   ROS_DEBUG("target_frame = %s.", target_frame.c_str());
-
-  // Inizializzazione del msg old_pose_2D_stamped_msg.
-  //old_pose_2D_stamped_msg.header.frame_id = target_frame;
-  //old_pose_2D_stamped_msg.header.seq = 0;
-  //old_pose_2D_stamped_msg.header.stamp = ros::Time::now();
-  //old_pose_2D_stamped_msg.pose.theta = 0.0;
-  //old_pose_2D_stamped_msg.pose.x = 0;
-  //old_pose_2D_stamped_msg.pose.y = 0;
 
   ros::NodeHandle node, nh_priv("~");
 
@@ -408,14 +392,6 @@ int main(int argc, char** argv)
   // Viene pubblicata la posa 2D del robot, come se fosse un messaggio PoseWithCovarianceStamped,
   //  in modo da poterla inviare al nodo 'robot_localization' per la sensor fusion.
   ros::Publisher robot_pose_to_localization_pub = node.advertise<geometry_msgs::PoseWithCovarianceStamped> ("robot_2d_geometry_pose", 1);
-
-  // Viene pubblicata la posa 2D del robot, come se fosse un messaggio di odometria,
-  //  in modo da poterla inviare al nodo 'robot_pose_ekf' per la sensor fusion.
-  //ros::Publisher robot_pose_to_ekf_pub = node.advertise<nav_msgs::Odometry> ("gps", 1);
-
-  // Viene pubblicata la posa 2D del robot, ottenuta dal tracking visuale,
-  //  convertita nelle cordinate del mondo, assieme alla confidenza.
-  //ros::Publisher robot_visual_track_2d_pub = node.advertise<visual_tracking_msgs::VisualTrack2DStamped> ("tracker_2d_pose", 1);
 
   sync.registerCallback(
       boost::bind(
