@@ -43,6 +43,7 @@
 // Defines
 #define MIN_CONFIDENCE 0.1f
 #define TARGET_FRAME_DEF "/world"
+#define PIXEL_DEPTH_TOO_HIGH 500 // millimeters
 
 // Typedefs and Enums
 // XXX: attenzione sta venendo utilizzata la politica 'ExactTime'.
@@ -168,7 +169,7 @@ void boundingBoxCallback(
           cols = 0;
         }
 
-        // L'immagine ottenuta da '/kinect2/sd/image_depth_rect' ha una codifica little endian su 16 bit.
+        // L'immagine ottenuta da '/kinect2/xxd/image_depth_rect' ha una codifica little endian su 16 bit.
         //  - little endian: least significant bit all'indirizzo minore
         //  - 'data' è di tipo uint8, per cui bisogna prendere insieme 2 valori consecutivi per
         //    ottenere un valore corretto
@@ -176,11 +177,13 @@ void boundingBoxCallback(
         //    - 0 corrisponde al terreno
         const uint16_t p_depth = sensor_depth_image->data[i] | (sensor_depth_image->data[i+1] << 8);
 
-        // Se il punto ha una profondita' non nulla ed e' all'interno della bounding box
+        // Il punto viene aggiunto alla bounding box se:
+        // - è posto all'interno della bounding box
+        // - ha una profondità non nulla
+        // - non è in una posizione troppo elevata (per evitare le semi-collisioni)
         //  viene aggiunto alla point cloud.
-        // XXX: sphero non appare nella depth map.
-        if( p_depth > 0 && roi_rect.contains(cv::Point(cols,rows)) )
           //if( p_depth > p_depth_thresh && roi_rect.contains(cv::Point(cols,rows)) )
+        if( roi_rect.contains(cv::Point(cols,rows)) && p_depth > 0 && p_depth < PIXEL_DEPTH_TOO_HIGH )
         {
           if(print_debug)
           {
@@ -189,7 +192,6 @@ void boundingBoxCallback(
           }
 
           pcl::PointXYZ pcl_point;
-          // XXX: perche' x e y vengono calcolati in questo modo?
           pcl_point.x = (cols - center_x) * p_depth * constant_x;
           pcl_point.y = (rows - center_y) * p_depth * constant_y;
           pcl_point.z = depth_image_proc::DepthTraits<uint16_t>::toMeters(p_depth);
@@ -212,20 +214,20 @@ void boundingBoxCallback(
     // Non appena e' disponibile la transform tra il sistema di riferimento finale
     //  (world) e quello dell'immagine depth, trasforma la 'bb_pcl' dal secondo
     //  al primo.
-    if(!transformer->waitForTransform(TARGET_FRAME_DEF, bb_pcl.header.frame_id,
+    if(!transformer->waitForTransform(target_frame, bb_pcl.header.frame_id,
           sensor_depth_image->header.stamp, ros::Duration(5.0)))
     {
       ROS_ERROR("Wait for transform timed out.");
       return;
     }
-    pcl_ros::transformPointCloud(TARGET_FRAME_DEF, bb_pcl, bb_pcl, *transformer);
+    pcl_ros::transformPointCloud(target_frame, bb_pcl, bb_pcl, *transformer);
 
     // 'refined_pcl' è una Point Cloud che contiene solamente
     //  i punti dati dalla bounding box del tracker
     //  che abbiano un'elevazione superiore a 'z_thresh'
     //  in questo modo il calcolo del centroide diventa più preciso.
     pcl::PointCloud<pcl::PointXYZ> refined_pcl;
-    refined_pcl.header.frame_id = TARGET_FRAME_DEF;
+    refined_pcl.header.frame_id = target_frame;
     refined_pcl.height = 1;       // unorganized PC
     refined_pcl.is_dense = true;  // does not contain NaN/Inf
     for(int i = 0; i < bb_pcl.points.size(); ++i)
