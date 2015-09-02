@@ -43,7 +43,7 @@
 // Defines
 #define MIN_CONFIDENCE 0.1f
 #define TARGET_FRAME_DEF "/world"
-#define POINT_TOO_HIGH 0.5 // meters
+#define POINT_TOO_HIGH 0.3 // meters (roomba is 0.08 m ca)
 #define WAIT_TRANS_TIME 5.0
 
 // Typedefs and Enums
@@ -56,10 +56,12 @@ typedef tf::Stamped<tf::Vector3> StampedPoint;
 // Global variables
 image_geometry::PinholeCameraModel cam_model_;
 //projected_game_msgs::Pose2DStamped old_pose_2D_stamped_msg;
+geometry_msgs::PoseWithCovarianceStamped old_pose_2D_stamped_msg;
 ros::Publisher show_me_point_cloud;
 ros::Subscriber depth_camera_info_sub;
 bool camera_info_received;
 double min_confidence;
+double point_max_height;
 double unit_scaling;
 double z_thresh;
 float center_x;
@@ -73,6 +75,10 @@ void dynamicReconfCb(bb_to_world::BBToWorldConfig &conf, uint32_t level)
 {
   min_confidence = conf.min_confidence;
   ROS_DEBUG("min_confidence has changed: %f.", min_confidence);
+
+  point_max_height = conf.point_max_height;
+  ROS_DEBUG("point_max_height has changed: %f.", point_max_height);
+
   z_thresh = conf.z_threshold;
   ROS_DEBUG("z_thresh has changed: %f.", z_thresh);
 }
@@ -120,11 +126,14 @@ void boundingBoxCallback(
   //  ed il pacchetto non viene inviato.
   if( b_box->confidence < min_confidence )
   {
-    ROS_INFO("Confidence is too low! Confidence = %.2f.\n", b_box->confidence);
+    ROS_WARN("Confidence is too low! Confidence = %.2f.", b_box->confidence);
+    //ROS_WARN("I'm returning without publishing a transform.\n");
+    ROS_WARN("I'm publishing the last valid transform.\n");
 
     // Le vecchie coordinate del punto vengono stampate in un topic.
+    // - serve a 'robot_localization'
     // XXX: nel momento in cui si pubblica bisogna inserirlo nel 'try'
-    //robot_pose_pub->publish(old_pose_2D_stamped_msg);
+    robot_pose_to_localization_pub->publish(old_pose_2D_stamped_msg);
 
     return;
   }
@@ -232,8 +241,10 @@ void boundingBoxCallback(
           //  - l'occlusione parziale della bounding box a causa del passaggio
           //    di una persona causa il calcolo errato della posizione del centroide
           // 2. l'altezza supera una certa soglia 'z_thresh'
-          //  - in questo modo il calcolo del centroide diventa piu' preciso
-          if( pcl_point.z < POINT_TOO_HIGH  && pcl_point.z > z_thresh )
+          //  - in questo modo non andiamo a prendere punti nel pavimento ed il calcolo del centroide
+          //    diventa piu' preciso
+          //if( pcl_point.z < POINT_TOO_HIGH  && pcl_point.z > z_thresh )
+          if( pcl_point.z < point_max_height  && pcl_point.z > z_thresh )
           {
             bb_pcl.points.push_back(pcl_point);
           }
@@ -318,17 +329,20 @@ void boundingBoxCallback(
     {
       // XXX: il pacchetto arriva a robot_localization
       boost::array<double, 36ul> pose_covariance =
-      { 1e-9, 0, 0, 0, 0, 0,                                         // covariance on visual tracking x
-        0, 1e-9, 0, 0, 0, 0,                                         // covariance on visual tracking y
+      { 1e-2, 0, 0, 0, 0, 0,                                         // covariance on visual tracking x
+        0, 1e-2, 0, 0, 0, 0,                                         // covariance on visual tracking y
         0, 0, 1e-9, 0, 0, 0,                                         // covariance on visual tracking z
-        0, 0, 0, 1e6, 0, 0,                                          // large covariance on rot x
-        0, 0, 0, 0, 1e6, 0,                                          // large covariance on rot y
-        0, 0, 0, 0, 0, 1e6};                                         // large covariance on rot z
+        0, 0, 0, 1e9, 0, 0,                                          // large covariance on rot x
+        0, 0, 0, 0, 1e9, 0,                                          // large covariance on rot y
+        0, 0, 0, 0, 0, 1e9};                                         // large covariance on rot z
       geom_pose_2D_stamped_msg.pose.covariance = pose_covariance;
     }
 
     // Pubblicazione delle coordinate del punto in un topic
     robot_pose_to_localization_pub->publish(geom_pose_2D_stamped_msg);
+
+    // Salviamo l'ultimo pacchetto inviato
+    old_pose_2D_stamped_msg = geom_pose_2D_stamped_msg;
 
     // after the dispatch the sequence number is incremented
     seq++;
@@ -353,6 +367,7 @@ int main(int argc, char** argv)
   std::string target_frame;
   camera_info_received = false;
   min_confidence = MIN_CONFIDENCE;
+  point_max_height = POINT_TOO_HIGH;
   z_thresh = -1.0;
 
   // Check arguments
@@ -373,6 +388,7 @@ int main(int argc, char** argv)
   nh_priv.param("min_confidence", min_confidence, 0.5);
   nh_priv.param("rate", rate_hz, 60.0);
   nh_priv.param("z_threshold", z_thresh, -1.0);
+  nh_priv.param("point_max_height", point_max_height, 0.5);
 
   dynamic_reconfigure::Server<bb_to_world::BBToWorldConfig> dynamic_reconf_server;
   dynamic_reconf_server.setCallback(boost::bind(dynamicReconfCb, _1, _2));
