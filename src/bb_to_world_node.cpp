@@ -122,24 +122,39 @@ void boundingBoxCallback(
 {
   static int seq; // Sequence number of the packages sent from this node.
 
-  // Quando la confidenza è bassa viene segnalato,
-  //  ed il pacchetto non viene inviato.
-  if( b_box->confidence < min_confidence )
-  {
-    ROS_WARN("Confidence is too low! Confidence = %.2f.", b_box->confidence);
-    //ROS_WARN("I'm returning without publishing a transform.\n");
-    ROS_WARN("I'm publishing the last valid transform.\n");
-
-    // Le vecchie coordinate del punto vengono stampate in un topic.
-    // - serve a 'robot_localization'
-    // XXX: nel momento in cui si pubblica bisogna inserirlo nel 'try'
-    robot_pose_to_localization_pub->publish(old_pose_2D_stamped_msg);
-
-    return;
-  }
-
   try
   {
+    // Quando la confidenza è bassa viene segnalato,
+    if( b_box->confidence < min_confidence )
+    {
+      ROS_WARN("Confidence is too low! Confidence = %.2f.", b_box->confidence);
+      ROS_WARN("I'm publishing the last valid transform.\n");
+
+      // Le vecchie coordinate del punto vengono stampate in un topic.
+      // - serve a 'robot_localization'
+      {
+        // XXX: se la confidenza e' troppo bassa, allora la covarianza del pacchetto deve venire
+        //      aumentata
+        boost::array<double, 36ul> new_pose_covariance =
+        { 1e3, 0, 0, 0, 0, 0,                                         // larger covariance on visual tracking x
+          0, 1e3, 0, 0, 0, 0,                                         // larger covariance on visual tracking y
+          0, 0, 1e-6, 0, 0, 0,                                         // small covariance on visual tracking z
+          0, 0, 0, 1e6, 0, 0,                                          // huge covariance on rot x
+          0, 0, 0, 0, 1e6, 0,                                          // huge covariance on rot y
+          0, 0, 0, 0, 0, 1e6};                                         // huge covariance on rot z
+        old_pose_2D_stamped_msg.pose.covariance = new_pose_covariance;
+      }
+
+      old_pose_2D_stamped_msg.header.seq = seq;
+
+      // XXX: nel momento in cui si pubblica bisogna inserirlo nel 'try'
+      robot_pose_to_localization_pub->publish(old_pose_2D_stamped_msg);
+
+      seq++;
+
+      return;
+    }
+
     // Trasforma le coordinate dell'angolo sinistro della Bounding Box,
     //  dal frame della Bounding Box, al frame della Depth Map.
     StampedPoint stamped_point_top_left;
@@ -236,7 +251,7 @@ void boundingBoxCallback(
           pcl_point.y = stamped_point_bounding_box_world.getY();
           pcl_point.z = stamped_point_bounding_box_world.getZ();
 
-          // come condizione aggiuntiva il punto viene aggiunto alla bounding box se
+          // come condizioni aggiuntive il punto viene aggiunto alla bounding box se
           // 1. non è in una posizione troppo elevata rispetto al suolo
           //  - l'occlusione parziale della bounding box a causa del passaggio
           //    di una persona causa il calcolo errato della posizione del centroide
@@ -327,14 +342,14 @@ void boundingBoxCallback(
     geom_pose_2D_stamped_msg.pose.pose.position.y = centroid(1);
     geom_pose_2D_stamped_msg.pose.pose.position.z = 0;
     {
-      // XXX: il pacchetto arriva a robot_localization
+      // XXX: il pacchetto arriva a 'robot_localization'
       boost::array<double, 36ul> pose_covariance =
-      { 1e-2, 0, 0, 0, 0, 0,                                         // covariance on visual tracking x
-        0, 1e-2, 0, 0, 0, 0,                                         // covariance on visual tracking y
-        0, 0, 1e-9, 0, 0, 0,                                         // covariance on visual tracking z
-        0, 0, 0, 1e9, 0, 0,                                          // large covariance on rot x
-        0, 0, 0, 0, 1e9, 0,                                          // large covariance on rot y
-        0, 0, 0, 0, 0, 1e9};                                         // large covariance on rot z
+      { 1e-2, 0, 0, 0, 0, 0,                                         // small covariance on visual tracking x
+        0, 1e-2, 0, 0, 0, 0,                                         // small covariance on visual tracking y
+        0, 0, 1e-6, 0, 0, 0,                                         // small covariance on visual tracking z
+        0, 0, 0, 1e6, 0, 0,                                          // huge covariance on rot x
+        0, 0, 0, 0, 1e6, 0,                                          // huge covariance on rot y
+        0, 0, 0, 0, 0, 1e6};                                         // huge covariance on rot z
       geom_pose_2D_stamped_msg.pose.covariance = pose_covariance;
     }
 
