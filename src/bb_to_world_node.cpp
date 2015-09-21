@@ -55,8 +55,6 @@ typedef tf::Stamped<tf::Vector3> StampedPoint;
 
 // Global variables
 image_geometry::PinholeCameraModel cam_model_;
-//projected_game_msgs::Pose2DStamped old_pose_2D_stamped_msg;
-geometry_msgs::PoseWithCovarianceStamped old_pose_2D_stamped_msg;
 ros::Publisher show_me_point_cloud;
 ros::Subscriber depth_camera_info_sub;
 bool camera_info_received;
@@ -124,33 +122,11 @@ void boundingBoxCallback(
 
   try
   {
-    // Quando la confidenza è bassa viene segnalato,
+    // Quando la confidenza è bassa viene segnalato e non viene pubblicato niente.
     if( b_box->confidence < min_confidence )
     {
       ROS_WARN("Confidence is too low! Confidence = %.2f.", b_box->confidence);
-      ROS_WARN("I'm publishing the last valid transform.\n");
-
-      // Le vecchie coordinate del punto vengono stampate in un topic.
-      // - serve a 'robot_localization'
-      {
-        // XXX: se la confidenza e' troppo bassa, allora la covarianza del pacchetto deve venire
-        //      aumentata
-        boost::array<double, 36ul> new_pose_covariance =
-        { 1e3, 0, 0, 0, 0, 0,                                         // larger covariance on visual tracking x
-          0, 1e3, 0, 0, 0, 0,                                         // larger covariance on visual tracking y
-          0, 0, 1e-6, 0, 0, 0,                                         // small covariance on visual tracking z
-          0, 0, 0, 1e6, 0, 0,                                          // huge covariance on rot x
-          0, 0, 0, 0, 1e6, 0,                                          // huge covariance on rot y
-          0, 0, 0, 0, 0, 1e6};                                         // huge covariance on rot z
-        old_pose_2D_stamped_msg.pose.covariance = new_pose_covariance;
-      }
-
-      old_pose_2D_stamped_msg.header.seq = seq;
-
-      // XXX: nel momento in cui si pubblica bisogna inserirlo nel 'try'
-      robot_pose_to_localization_pub->publish(old_pose_2D_stamped_msg);
-
-      seq++;
+      ROS_WARN("I'm not publishing anything.\n");
 
       return;
     }
@@ -355,9 +331,6 @@ void boundingBoxCallback(
 
     // Pubblicazione delle coordinate del punto in un topic
     robot_pose_to_localization_pub->publish(geom_pose_2D_stamped_msg);
-
-    // Salviamo l'ultimo pacchetto inviato
-    old_pose_2D_stamped_msg = geom_pose_2D_stamped_msg;
 
     // after the dispatch the sequence number is incremented
     seq++;
