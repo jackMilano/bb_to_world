@@ -9,14 +9,11 @@
 #include <message_filters/sync_policies/exact_time.h>
 #include <message_filters/synchronizer.h>
 
-#include <geometry_msgs/Point.h>
-#include <geometry_msgs/PointStamped.h>
+#include <geometry_msgs/PoseStamped.h>
 #include <geometry_msgs/PoseWithCovarianceStamped.h>
-#include <nav_msgs/Odometry.h>
 #include <projected_game_msgs/Pose2DStamped.h>
 #include <sensor_msgs/CameraInfo.h>
 #include <sensor_msgs/Image.h>
-#include <sensor_msgs/PointCloud2.h>
 #include <std_msgs/Header.h>
 #include <tld_msgs/BoundingBox.h>
 
@@ -34,6 +31,7 @@
 #include <tf/tf.h>
 #include <tf/transform_listener.h>
 
+// Parametri camera
 #include <bb_to_world/depth_traits.h> // 'depth_image_proc'
 #include <image_geometry/pinhole_camera_model.h>
 
@@ -42,19 +40,21 @@
 
 // Defines
 #define MIN_CONFIDENCE 0.1f
+#define POINT_TOO_HIGH 0.3f // meters (roomba is 0.08 m ca)
 #define TARGET_FRAME_DEF "/world"
-#define POINT_TOO_HIGH 0.3 // meters (roomba is 0.08 m ca)
-#define WAIT_TRANS_TIME 5.0
+#define WAIT_TRANS_TIME 5.0f
 
 // Typedefs and Enums
 // Notare che sta venendo utilizzata la politica 'ExactTime'.
 typedef message_filters::sync_policies::ExactTime<sensor_msgs::Image, tld_msgs::BoundingBox> MySyncPolicy;
+
 typedef pcl::PointXYZRGB PointT;
 typedef tf::Stamped<tf::Vector3> StampedPoint;
 
 // Global variables
+//ros::Publisher show_me_point_cloud;
 image_geometry::PinholeCameraModel cam_model_;
-ros::Publisher show_me_point_cloud;
+ros::Publisher robot_pose_rviz_pub;
 ros::Subscriber depth_camera_info_sub;
 bool camera_info_received;
 double min_confidence;
@@ -81,13 +81,13 @@ void dynamicReconfCb(bb_to_world::BBToWorldConfig &conf, uint32_t level)
 
 void depthCameraInfoCb(const sensor_msgs::CameraInfo::ConstPtr& depth_camera_info)
 {
-  // load the camera model structure with the pinhole model
-  //  (Intrinsic + distortion coefficients) of the IR camera (depth)
+  // Load the camera model structure with the pinhole model (Intrinsic + distortion coefficients)
+  // of the IR camera (depth).
   cam_model_.fromCameraInfo(depth_camera_info);
 
   ROS_INFO("Depth Camera Model Loaded");
 
-  //do it once since the camera model is constant
+  // Do it once since the camera model is constant
   depth_camera_info_sub.shutdown();
 
   ROS_INFO("Camera Info subscriber shut down");
@@ -108,18 +108,22 @@ void depthCameraInfoCb(const sensor_msgs::CameraInfo::ConstPtr& depth_camera_inf
   return;
 }
 
+
 // 1. la bounding box (bidimensionale) viene portata nel sistema di riferimento della camera
-// 2. utilizzando la bounding box si estraggono dalla mappa di profondità tutti i punti in essa contenuti
-// 3. ognuno di questi punti bidimensionali viene convertito nel corrispondente punto 3D, usando i valori di profondità
-//    ed i parametri della camera
+// 2. utilizzando la bounding box si estraggono dalla mappa di profondità tutti i punti in essa
+//    contenuti
+// 3. ognuno di questi punti bidimensionali viene convertito nel corrispondente punto 3D, usando i
+//    valori di profondità ed i parametri della camera
 // 4. i punti vengono convertiti nel sistema di riferimento del target frame
-// 5. questi punti vengono salvati in una point cloud se non corrispondono al pavimento o alle persone che passano davanti
+// 5. questi punti vengono salvati in una point cloud se non corrispondono al pavimento o alle
+//    persone che passano davanti
 // 6. viene calcolato il centroide di questa point cloud
 void boundingBoxCallback(
     const sensor_msgs::Image::ConstPtr& sensor_depth_image,
     const tld_msgs::BoundingBox::ConstPtr& b_box,
     const std::string target_frame,
     const tf::TransformListener* transformer,
+    const ros::Publisher* robot_pose_rviz_pub,
     const ros::Publisher* robot_pose_pub,
     const ros::Publisher* robot_pose_to_localization_pub)
 {
@@ -132,7 +136,6 @@ void boundingBoxCallback(
     {
       ROS_WARN("Confidence is too low! Confidence = %.2f.", b_box->confidence);
       ROS_WARN("I'm not publishing anything.\n");
-
       return;
     }
 
@@ -156,10 +159,12 @@ void boundingBoxCallback(
 
     // Non appena è disponibile la transform tra il sistema di riferimento finale (world) e quello dell'immagine depth,
     // si procede all'operazione di estrazione dei punti.
-    if(!transformer->waitForTransform(target_frame, bb_pcl.header.frame_id,
+    //if(!transformer->waitForTransform(target_frame, bb_pcl.header.frame_id, // ehm: 'bb_pcl.header.frame_id = target_frame;'
+          //sensor_depth_image->header.stamp, ros::Duration(WAIT_TRANS_TIME)))
+    if(!transformer->waitForTransform(target_frame, sensor_depth_image->header.frame_id, // ehm: 'bb_pcl.header.frame_id = target_frame;'
           sensor_depth_image->header.stamp, ros::Duration(WAIT_TRANS_TIME)))
     {
-      ROS_ERROR("Wait for transform timed out.");
+      ROS_ERROR("bb_to_world: wait for transform timed out!!");
       return;
     }
 
@@ -190,17 +195,21 @@ void boundingBoxCallback(
         //  - p_depth corrisponde alla profondità del pixel, in mm, rispetto all'optical_frame
         const uint16_t p_depth = sensor_depth_image->data[i] | (sensor_depth_image->data[i+1] << 8);
 
-        // Il punto viene aggiunto alla point cloud se:
+        // Il punto di coordinate (cols, rows) viene aggiunto alla Point Cloud se:
         // 1. è all'interno della bounding box
-        // 2. non è attaccato alla camera (p_depth = 0)
+        // 2. il valore di profondità è un valore valido (p_depth != 0)
         if( roi_rect.contains(cv::Point(cols,rows)) && p_depth > 0 )
         {
           StampedPoint stamped_point_bounding_box_world;
           {
-            // Vengono calcolate le coordinate tridimensionali del punto nel sistema di riferimento ottico della profondità.
+            // Vengono calcolate le coordinate tridimensionali del punto, nel sistema di riferimento ottico della profondità.
             const tfScalar tf_x = (cols - center_x) * p_depth * constant_x;
             const tfScalar tf_y = (rows - center_y) * p_depth * constant_y;
-            const tfScalar tf_z = depth_image_proc::DepthTraits<uint16_t>::toMeters(p_depth); // From mm to m.
+            // 'DepthTraits<uint16_t>::toMeters' converte da mm a m, semplicemente dividendo per
+            // 1000.
+            // 'DepthTraits<uint16_t>::fromMeters' invece converte da m a mm, moltiplicando per
+            // 1000 e aggiungendo mezzo millimetro.
+            const tfScalar tf_z = depth_image_proc::DepthTraits<uint16_t>::toMeters(p_depth);
             const tf::Point tf_point_bounding_box_optical(tf_x, tf_y, tf_z);
 
             // Dal sistema di riferimento 'camera depth' si passa al sistema di riferimento del 'target_frame'.
@@ -246,25 +255,42 @@ void boundingBoxCallback(
       return;
     }
 
-    // Viene pubblicata la Point Cloud
+    // Viene pubblicata la Point Cloud.
     //sensor_msgs::PointCloud2 bb_pcl_msg;
     //pcl::toROSMsg(bb_pcl, bb_pcl_msg);
     //show_me_point_cloud.publish(bb_pcl_msg);
-    //TODO: far pubblicare direttamente qui il messaggio di tipo PoseStamped (vd. show_tracked_object_rviz)?
 
-    // Preparazione del msg Pose2DStamped per essere inviato
-    projected_game_msgs::Pose2DStamped pose_2D_stamped_msg;
-    pose_2D_stamped_msg.header.frame_id = target_frame;
-    pose_2D_stamped_msg.header.seq = seq;
-    pose_2D_stamped_msg.header.stamp = sensor_depth_image->header.stamp;
-    pose_2D_stamped_msg.pose.theta = 0.0;
-    pose_2D_stamped_msg.pose.x = centroid(0);
-    pose_2D_stamped_msg.pose.y = centroid(1);
+    // Viene visualizzata su rviz la posizione dell'oggetto restituita dal visual tracker.
+    {
+      geometry_msgs::PoseStamped pose_stamped;
+      pose_stamped.header.frame_id = target_frame;
+      pose_stamped.header.seq = seq;
+      pose_stamped.header.stamp = sensor_depth_image->header.stamp;
+      pose_stamped.pose.orientation.w = 1;
+      pose_stamped.pose.orientation.x = 0;
+      pose_stamped.pose.orientation.y = 0;
+      pose_stamped.pose.orientation.z = 0;
+      pose_stamped.pose.position.x = centroid(0);
+      pose_stamped.pose.position.y = centroid(1);
+      pose_stamped.pose.position.z = 0;
 
-    // Pubblicazione delle coordinate del punto in un topic
-    robot_pose_pub->publish(pose_2D_stamped_msg);
+      robot_pose_rviz_pub->publish(pose_stamped);
+    }
 
-    // Preparazione del msg PoseWithCovarianceStamped per essere inviato
+    // Preparazione del msg Pose2DStamped per essere inviato ad Unity Bridge
+    {
+      projected_game_msgs::Pose2DStamped pose_2D_stamped_msg;
+      pose_2D_stamped_msg.header.frame_id = target_frame;
+      pose_2D_stamped_msg.header.seq = seq;
+      pose_2D_stamped_msg.header.stamp = sensor_depth_image->header.stamp;
+      pose_2D_stamped_msg.pose.theta = 0.0;
+      pose_2D_stamped_msg.pose.x = centroid(0);
+      pose_2D_stamped_msg.pose.y = centroid(1);
+
+      robot_pose_pub->publish(pose_2D_stamped_msg);
+    }
+
+    // Preparazione del msg PoseWithCovarianceStamped per essere inviato al filtro di Kalman.
     geometry_msgs::PoseWithCovarianceStamped geom_pose_2D_stamped_msg;
     geom_pose_2D_stamped_msg.header.frame_id = target_frame;
     geom_pose_2D_stamped_msg.header.seq = seq;
@@ -279,16 +305,17 @@ void boundingBoxCallback(
     {
       // XXX: il pacchetto arriva a 'robot_localization'
       boost::array<double, 36ul> pose_covariance =
-      { 1e-2, 0, 0, 0, 0, 0,                                         // small covariance on visual tracking x
-        0, 1e-2, 0, 0, 0, 0,                                         // small covariance on visual tracking y
-        0, 0, 1e-6, 0, 0, 0,                                         // small covariance on visual tracking z
-        0, 0, 0, 1e6, 0, 0,                                          // huge covariance on rot x
-        0, 0, 0, 0, 1e6, 0,                                          // huge covariance on rot y
-        0, 0, 0, 0, 0, 1e6};                                         // huge covariance on rot z
+      {
+        1e-2, 0, 0, 0, 0, 0,                                    // small covariance on visual tracking x
+        0, 1e-2, 0, 0, 0, 0,                                    // small covariance on visual tracking y
+        0, 0, 1e-6, 0, 0, 0,                                    // small covariance on visual tracking z
+        0, 0, 0, 1e6, 0, 0,                                     // huge covariance on rot x
+        0, 0, 0, 0, 1e6, 0,                                     // huge covariance on rot y
+        0, 0, 0, 0, 0, 1e6                                      // huge covariance on rot z
+      };
       geom_pose_2D_stamped_msg.pose.covariance = pose_covariance;
     }
 
-    // Pubblicazione delle coordinate del punto in un topic
     robot_pose_to_localization_pub->publish(geom_pose_2D_stamped_msg);
 
     // after the dispatch the sequence number is incremented
@@ -341,12 +368,15 @@ int main(int argc, char** argv)
   dynamic_reconf_server.setCallback(boost::bind(dynamicReconfCb, _1, _2));
 
   // Sincronizzazione tra 2 canali di ingresso
-  //  (l'immagine di profondita' e la posizione restituita dal tracker visuale)
+  //  (l'immagine di profondità e la posizione restituita dal tracker visuale)
   message_filters::Subscriber<sensor_msgs::Image> image_sub(node, "camera/image", 1);
   message_filters::Subscriber<tld_msgs::BoundingBox> b_box_sub(node, "tracker/bounding_box", 1);
   message_filters::Synchronizer<MySyncPolicy> sync(MySyncPolicy(10), image_sub, b_box_sub);
 
   tf::TransformListener transformer;
+
+  //show_me_point_cloud = node.advertise<sensor_msgs::PointCloud2>("bb_point_cloud", 1);
+  ros::Publisher robot_pose_rviz_pub = node.advertise<geometry_msgs::PoseStamped>("robot_pose_rviz", 1);
 
   // Viene pubblicata la posa 2D del robot, ottenuta dal tracking visuale,
   //  convertita nelle cordinate del mondo.
@@ -362,13 +392,12 @@ int main(int argc, char** argv)
         _1, _2,
         target_frame,
         &transformer,
+        &robot_pose_rviz_pub,
         &robot_pose_pub,
         &robot_pose_to_localization_pub));
 
   // This callback will be performed once (camera model is costant).
   depth_camera_info_sub = node.subscribe("camera/camera_info", 1, depthCameraInfoCb);
-
-  show_me_point_cloud = node.advertise<sensor_msgs::PointCloud2>("bb_point_cloud", 1);
 
   sleep(2); //sleep 2 seconds. Wait 'openni_launch' to come up.
 

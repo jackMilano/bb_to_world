@@ -6,6 +6,7 @@ project(bb_to_world)
 ## is used, also find other catkin packages
 find_package(catkin REQUIRED COMPONENTS
   #cv_bridge
+  dynamic_reconfigure
   geometry_msgs
   image_geometry
   message_filters
@@ -18,7 +19,6 @@ find_package(catkin REQUIRED COMPONENTS
   std_msgs
   tf
   tld_msgs
-  dynamic_reconfigure
 )
 
 ## System dependencies are found with CMake's conventions
