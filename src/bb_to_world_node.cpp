@@ -67,7 +67,7 @@ float constant_x;
 float constant_y;
 
 
-void dynamicReconfCb(bb_to_world::BBToWorldConfig &conf, uint32_t level)
+void dynamicReconfCb(bb_to_world::BBToWorldConfig& conf, uint32_t level)
 {
   min_confidence = conf.min_confidence;
   ROS_DEBUG("min_confidence has changed: %f.", min_confidence);
@@ -97,7 +97,7 @@ void depthCameraInfoCb(const sensor_msgs::CameraInfo::ConstPtr& depth_camera_inf
   center_y = cam_model_.cy();
 
   // Combine unit conversion (if necessary) with scaling by focal length for computing (X,Y)
-  unit_scaling = depth_image_proc::DepthTraits<uint16_t>::toMeters( uint16_t(1) );
+  unit_scaling = depth_image_proc::DepthTraits<uint16_t>::toMeters(uint16_t(1));
   constant_x = unit_scaling / cam_model_.fx();
   constant_y = unit_scaling / cam_model_.fy();
 
@@ -119,20 +119,20 @@ void depthCameraInfoCb(const sensor_msgs::CameraInfo::ConstPtr& depth_camera_inf
 //    persone che passano davanti
 // 6. viene calcolato il centroide di questa point cloud
 void boundingBoxCallback(
-    const sensor_msgs::Image::ConstPtr& sensor_depth_image,
-    const tld_msgs::BoundingBox::ConstPtr& b_box,
-    const std::string target_frame,
-    const tf::TransformListener* transformer,
-    const ros::Publisher* robot_pose_rviz_pub,
-    const ros::Publisher* robot_pose_pub,
-    const ros::Publisher* robot_pose_to_localization_pub)
+  const sensor_msgs::Image::ConstPtr& sensor_depth_image,
+  const tld_msgs::BoundingBox::ConstPtr& b_box,
+  const std::string target_frame,
+  const tf::TransformListener* transformer,
+  const ros::Publisher* robot_pose_rviz_pub,
+  const ros::Publisher* robot_pose_pub,
+  const ros::Publisher* robot_pose_to_localization_pub)
 {
   static int seq; // Sequence number of the packages sent from this node.
 
   try
   {
     // Quando la confidenza è bassa (o nulla) viene segnalato e non viene pubblicato niente.
-    if( b_box->confidence < min_confidence )
+    if(b_box->confidence < min_confidence)
     {
       ROS_WARN("Confidence is too low! Confidence = %.2f.", b_box->confidence);
       ROS_WARN("I'm not publishing anything.\n");
@@ -146,7 +146,7 @@ void boundingBoxCallback(
       StampedPoint stamped_point_in;
       stamped_point_in.frame_id_ = b_box->header.frame_id;
       stamped_point_in.stamp_ = b_box->header.stamp;
-      stamped_point_in.setData( tf::Point(b_box->x, b_box->y, 0) );
+      stamped_point_in.setData(tf::Point(b_box->x, b_box->y, 0));
       transformer->transformPoint(sensor_depth_image->header.frame_id, stamped_point_in, stamped_point_top_left);
     }
 
@@ -160,9 +160,10 @@ void boundingBoxCallback(
     // Non appena è disponibile la transform tra il sistema di riferimento finale (world) e quello dell'immagine depth,
     // si procede all'operazione di estrazione dei punti.
     //if(!transformer->waitForTransform(target_frame, bb_pcl.header.frame_id, // ehm: 'bb_pcl.header.frame_id = target_frame;'
-          //sensor_depth_image->header.stamp, ros::Duration(WAIT_TRANS_TIME)))
-    if(!transformer->waitForTransform(target_frame, sensor_depth_image->header.frame_id, // ehm: 'bb_pcl.header.frame_id = target_frame;'
-          sensor_depth_image->header.stamp, ros::Duration(WAIT_TRANS_TIME)))
+    //sensor_depth_image->header.stamp, ros::Duration(WAIT_TRANS_TIME)))
+    if(!transformer->waitForTransform(target_frame,
+                                      sensor_depth_image->header.frame_id, // ehm: 'bb_pcl.header.frame_id = target_frame;'
+                                      sensor_depth_image->header.stamp, ros::Duration(WAIT_TRANS_TIME)))
     {
       ROS_ERROR("bb_to_world: wait for transform timed out!!");
       return;
@@ -173,16 +174,18 @@ void boundingBoxCallback(
       const cv::Rect roi_rect(stamped_point_top_left.getX(), stamped_point_top_left.getY(), b_box->width, b_box->height);
       const int image_size = sensor_depth_image->data.size();
       const int img_cols = sensor_depth_image->width;
-      int pix=-1;
-      int print_debug=1;
-      int rows=-1, cols=-1;
-      for(int i=0; i<image_size; i+=2)
+      int pix = -1;
+      int print_debug = 1;
+      int rows = -1, cols = -1;
+
+      for(int i = 0; i < image_size; i += 2)
       {
         // Per ogni pixel dell'immagine di profondità viene calcolata la corrispondente posizione
         // in termini di righe e colonne.
         ++pix;
         ++cols;
-        if(pix%img_cols == 0)
+
+        if(pix % img_cols == 0)
         {
           ++rows;
           cols = 0;
@@ -193,12 +196,12 @@ void boundingBoxCallback(
         //  - 'data' è di tipo uint8, per cui bisogna prendere insieme 2 valori consecutivi per
         //    ottenere un valore corretto
         //  - p_depth corrisponde alla profondità del pixel, in mm, rispetto all'optical_frame
-        const uint16_t p_depth = sensor_depth_image->data[i] | (sensor_depth_image->data[i+1] << 8);
+        const uint16_t p_depth = sensor_depth_image->data[i] | (sensor_depth_image->data[i + 1] << 8);
 
         // Il punto di coordinate (cols, rows) viene aggiunto alla Point Cloud se:
         // 1. è all'interno della bounding box
         // 2. il valore di profondità è un valore valido (p_depth != 0)
-        if( roi_rect.contains(cv::Point(cols,rows)) && p_depth > 0 )
+        if(roi_rect.contains(cv::Point(cols, rows)) && p_depth > 0)
         {
           StampedPoint stamped_point_bounding_box_world;
           {
@@ -216,7 +219,7 @@ void boundingBoxCallback(
             StampedPoint stamped_point_bounding_box_optical;
             stamped_point_bounding_box_optical.frame_id_ = sensor_depth_image->header.frame_id;
             stamped_point_bounding_box_optical.stamp_ = sensor_depth_image->header.stamp;
-            stamped_point_bounding_box_optical.setData( tf_point_bounding_box_optical );
+            stamped_point_bounding_box_optical.setData(tf_point_bounding_box_optical);
             transformer->transformPoint(target_frame, stamped_point_bounding_box_optical, stamped_point_bounding_box_world);
           }
 
@@ -232,7 +235,7 @@ void boundingBoxCallback(
           // 2. l'altezza supera una certa soglia 'z_thresh'
           //  - in questo modo non andiamo a prendere punti nel pavimento ed il calcolo del centroide
           //    diventa più preciso
-          if( pcl_point.z < point_max_height && pcl_point.z > z_thresh )
+          if(pcl_point.z < point_max_height && pcl_point.z > z_thresh)
           {
             bb_pcl.points.push_back(pcl_point);
           }
@@ -248,7 +251,8 @@ void boundingBoxCallback(
 
     // Se il calcolo del centroide fallisce, non viene pubblicato niente.
     Eigen::Vector4d centroid;
-    if ( pcl::compute3DCentroid(bb_pcl, centroid) == 0 )
+
+    if(pcl::compute3DCentroid(bb_pcl, centroid) == 0)
     {
       ROS_ERROR("centroid not computed! z_thresh = %.2f. bb_pcl.points.size() = %d.", z_thresh, (int) bb_pcl.points.size());
 
@@ -345,7 +349,7 @@ int main(int argc, char** argv)
   z_thresh = -1.0;
 
   // Check arguments
-  if( argc != 2 )
+  if(argc != 2)
   {
     ROS_WARN("Usage: %s <target_frame>.\n'target_frame' set to %s.", argv[0], TARGET_FRAME_DEF);
     target_frame = TARGET_FRAME_DEF;
@@ -354,6 +358,7 @@ int main(int argc, char** argv)
   {
     target_frame = argv[1];
   }
+
   ROS_DEBUG("target_frame = %s.", target_frame.c_str());
 
   ros::NodeHandle node, nh_priv("~");
@@ -384,17 +389,18 @@ int main(int argc, char** argv)
 
   // Viene pubblicata la posa 2D del robot, come se fosse un messaggio PoseWithCovarianceStamped,
   //  in modo da poterla inviare al nodo 'robot_localization' per la sensor fusion.
-  ros::Publisher robot_pose_to_localization_pub = node.advertise<geometry_msgs::PoseWithCovarianceStamped> ("robot_2d_geometry_pose", 1);
+  ros::Publisher robot_pose_to_localization_pub =
+    node.advertise<geometry_msgs::PoseWithCovarianceStamped> ("robot_2d_geometry_pose", 1);
 
   sync.registerCallback(
-      boost::bind(
-        &boundingBoxCallback,
-        _1, _2,
-        target_frame,
-        &transformer,
-        &robot_pose_rviz_pub,
-        &robot_pose_pub,
-        &robot_pose_to_localization_pub));
+    boost::bind(
+      &boundingBoxCallback,
+      _1, _2,
+      target_frame,
+      &transformer,
+      &robot_pose_rviz_pub,
+      &robot_pose_pub,
+      &robot_pose_to_localization_pub));
 
   // This callback will be performed once (camera model is costant).
   depth_camera_info_sub = node.subscribe("camera/camera_info", 1, depthCameraInfoCb);
