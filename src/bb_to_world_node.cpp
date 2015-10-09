@@ -11,7 +11,7 @@
 
 #include <geometry_msgs/PoseStamped.h>
 #include <geometry_msgs/PoseWithCovarianceStamped.h>
-#include <projected_game_msgs/Pose2DStamped.h>
+//#include <projected_game_msgs/Pose2DStamped.h>
 #include <sensor_msgs/CameraInfo.h>
 #include <sensor_msgs/Image.h>
 #include <std_msgs/Header.h>
@@ -124,7 +124,7 @@ void boundingBoxCallback(
   const std::string target_frame,
   const tf::TransformListener* transformer,
   const ros::Publisher* robot_pose_rviz_pub,
-  const ros::Publisher* robot_pose_pub,
+//  const ros::Publisher* robot_pose_pub,
   const ros::Publisher* robot_pose_to_localization_pub)
 {
   static int seq; // Sequence number of the packages sent from this node.
@@ -282,17 +282,17 @@ void boundingBoxCallback(
     }
 
     // Preparazione del msg Pose2DStamped per essere inviato ad Unity Bridge
-    {
-      projected_game_msgs::Pose2DStamped pose_2D_stamped_msg;
-      pose_2D_stamped_msg.header.frame_id = target_frame;
-      pose_2D_stamped_msg.header.seq = seq;
-      pose_2D_stamped_msg.header.stamp = sensor_depth_image->header.stamp;
-      pose_2D_stamped_msg.pose.theta = 0.0;
-      pose_2D_stamped_msg.pose.x = centroid(0);
-      pose_2D_stamped_msg.pose.y = centroid(1);
+//    {
+//      projected_game_msgs::Pose2DStamped pose_2D_stamped_msg;
+//      pose_2D_stamped_msg.header.frame_id = target_frame;
+//      pose_2D_stamped_msg.header.seq = seq;
+//      pose_2D_stamped_msg.header.stamp = sensor_depth_image->header.stamp;
+//      pose_2D_stamped_msg.pose.theta = 0.0;
+//      pose_2D_stamped_msg.pose.x = centroid(0);
+//      pose_2D_stamped_msg.pose.y = centroid(1);
 
-      robot_pose_pub->publish(pose_2D_stamped_msg);
-    }
+//      robot_pose_pub->publish(pose_2D_stamped_msg);
+//    }
 
     // Preparazione del msg PoseWithCovarianceStamped per essere inviato al filtro di Kalman.
     geometry_msgs::PoseWithCovarianceStamped geom_pose_2D_stamped_msg;
@@ -385,7 +385,7 @@ int main(int argc, char** argv)
 
   // Viene pubblicata la posa 2D del robot, ottenuta dal tracking visuale,
   //  convertita nelle cordinate del mondo.
-  ros::Publisher robot_pose_pub = node.advertise<projected_game_msgs::Pose2DStamped> ("robot_2d_pose", 1);
+//  ros::Publisher robot_pose_pub = node.advertise<projected_game_msgs::Pose2DStamped> ("robot_2d_pose", 1);
 
   // Viene pubblicata la posa 2D del robot, come se fosse un messaggio PoseWithCovarianceStamped,
   //  in modo da poterla inviare al nodo 'robot_localization' per la sensor fusion.
@@ -399,8 +399,17 @@ int main(int argc, char** argv)
       target_frame,
       &transformer,
       &robot_pose_rviz_pub,
-      &robot_pose_pub,
       &robot_pose_to_localization_pub));
+
+//  sync.registerCallback(
+//    boost::bind(
+//      &boundingBoxCallback,
+//      _1, _2,
+//      target_frame,
+//      &transformer,
+//      &robot_pose_rviz_pub,
+//      &robot_pose_pub,
+//      &robot_pose_to_localization_pub));
 
   // This callback will be performed once (camera model is costant).
   depth_camera_info_sub = node.subscribe("camera/camera_info", 1, depthCameraInfoCb);
