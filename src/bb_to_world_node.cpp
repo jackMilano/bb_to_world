@@ -124,12 +124,11 @@ void isFalsePositiveCb(const std_msgs::Bool::ConstPtr& is_false_positive_msg)
 
   if(is_false_positive)
   {
-    ROS_WARN("bb_to_world: FALSO POSITIVO!");
-    ROS_WARN("Da ora in poi i messaggi ricevuti dal Visual Tracker verranno scartati.");
+    ROS_WARN("bb_to_world: FALSE POSITIVE is TRUE!");
   }
   else
   {
-    ROS_WARN("bb_to_world: siamo usciti dallo stato di falso positivo, riprende la pubblicazione dei messaggi!");
+    ROS_WARN("bb_to_world: FALSE POSITIVE is FALSE!");
   }
 
   return;
@@ -156,9 +155,17 @@ void boundingBoxCallback(
   static int seq; // Sequence number of the packages sent from this node.
 
   // Quando la confidenza è bassa (o nulla) viene segnalato e non viene pubblicato niente.
-  if(is_false_positive || b_box->confidence < min_confidence)
+  if(b_box->confidence < min_confidence)
   {
     ROS_WARN("Confidence is too low! Confidence = %.2f.", b_box->confidence);
+    ROS_WARN("I'm not publishing anything.\n");
+    return;
+  }
+
+  // Quando la posizione ricevuta e' marcata come falso positivo, viene segnalato e non viene pubblicato niente.
+  if(is_false_positive)
+  {
+    ROS_WARN("Falso positivo!");
     ROS_WARN("I'm not publishing anything.\n");
     return;
   }
