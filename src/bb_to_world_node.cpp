@@ -1,5 +1,11 @@
-// Il nodo si occupa di convertire le coordinate dell'oggetto tracckato
-// dal suo sistema di riferimento a quello fisso del mondo ('world')
+// Il nodo prende in ingresso la Bounding Box corrispondente al target restituita dal Visual Tracker, nel sistema di
+// riferimento della camera, e restituisce un messaggio di `Pose` contenente la posizione del target nel sistema di
+// riferimento "output frame" (tipicamente il frame del mondo).
+
+// Il nodo si occupa anche di "bloccare" la pubblicazione dei messaggi in determinati casi:
+// - confidenza nulla (lost tracking)
+// - messaggio ricevuto dal nodo `reset_visual_tracker` (falso positivo)
+
 
 // ROS library
 #include <ros/ros.h>
@@ -11,11 +17,12 @@
 
 #include <geometry_msgs/PoseStamped.h>
 #include <geometry_msgs/PoseWithCovarianceStamped.h>
-//#include <projected_game_msgs/Pose2DStamped.h>
 #include <sensor_msgs/CameraInfo.h>
 #include <sensor_msgs/Image.h>
+#include <std_msgs/Bool.h>
 #include <std_msgs/Header.h>
 #include <tld_msgs/BoundingBox.h>
+//#include <projected_game_msgs/Pose2DStamped.h>
 
 // PCL libraries
 #include <pcl/common/centroid.h>
@@ -56,7 +63,9 @@ typedef tf::Stamped<tf::Vector3> StampedPoint;
 image_geometry::PinholeCameraModel cam_model_;
 ros::Publisher robot_pose_rviz_pub;
 ros::Subscriber depth_camera_info_sub;
+ros::Subscriber is_false_positive_sub;
 bool camera_info_received;
+bool is_false_positive;
 double min_confidence;
 double point_max_height;
 double unit_scaling;
@@ -109,6 +118,23 @@ void depthCameraInfoCb(const sensor_msgs::CameraInfo::ConstPtr& depth_camera_inf
 }
 
 
+void isFalsePositiveCb(const std_msgs::Bool::ConstPtr& is_false_positive_msg)
+{
+  is_false_positive = is_false_positive_msg->data;
+
+  if(is_false_positive)
+  {
+    ROS_WARN("bb_to_world: FALSO POSITIVO!");
+    ROS_WARN("Da ora in poi i messaggi ricevuti dal Visual Tracker verranno scartati.");
+  }
+  else
+  {
+    ROS_WARN("bb_to_world: siamo usciti dallo stato di falso positivo, riprende la pubblicazione dei messaggi!");
+  }
+
+  return;
+}
+
 // 1. la bounding box (bidimensionale) viene portata nel sistema di riferimento della camera
 // 2. utilizzando la bounding box si estraggono dalla mappa di profondità tutti i punti in essa
 //    contenuti
@@ -129,16 +155,16 @@ void boundingBoxCallback(
 {
   static int seq; // Sequence number of the packages sent from this node.
 
+  // Quando la confidenza è bassa (o nulla) viene segnalato e non viene pubblicato niente.
+  if(is_false_positive || b_box->confidence < min_confidence)
+  {
+    ROS_WARN("Confidence is too low! Confidence = %.2f.", b_box->confidence);
+    ROS_WARN("I'm not publishing anything.\n");
+    return;
+  }
+
   try
   {
-    // Quando la confidenza è bassa (o nulla) viene segnalato e non viene pubblicato niente.
-    if(b_box->confidence < min_confidence)
-    {
-      ROS_WARN("Confidence is too low! Confidence = %.2f.", b_box->confidence);
-      ROS_WARN("I'm not publishing anything.\n");
-      return;
-    }
-
     // Trasforma le coordinate dell'angolo sinistro della Bounding Box, dal sistema di riferimento
     // della Bounding Box, al sistema di riferimento della Depth Map.
     StampedPoint stamped_point_top_left;
@@ -342,11 +368,14 @@ int main(int argc, char** argv)
 {
   ros::init(argc, argv, "bb_to_world_node");
 
-  std::string target_frame;
+  // inizializzazione variabili globali
   camera_info_received = false;
+  is_false_positive = false;
   min_confidence = MIN_CONFIDENCE;
   point_max_height = POINT_TOO_HIGH;
   z_thresh = -1.0;
+
+  std::string target_frame;
 
   // Check arguments
   if(argc != 2)
@@ -385,21 +414,15 @@ int main(int argc, char** argv)
 
   // Viene pubblicata la posa 2D del robot, ottenuta dal tracking visuale,
   //  convertita nelle cordinate del mondo.
-//  ros::Publisher robot_pose_pub = node.advertise<projected_game_msgs::Pose2DStamped> ("robot_2d_pose", 1);
+  //  ros::Publisher robot_pose_pub = node.advertise<projected_game_msgs::Pose2DStamped> ("robot_2d_pose", 1);
 
   // Viene pubblicata la posa 2D del robot, come se fosse un messaggio PoseWithCovarianceStamped,
   //  in modo da poterla inviare al nodo 'robot_localization' per la sensor fusion.
   ros::Publisher robot_pose_to_localization_pub =
     node.advertise<geometry_msgs::PoseWithCovarianceStamped> ("robot_2d_geometry_pose", 1);
 
-  sync.registerCallback(
-    boost::bind(
-      &boundingBoxCallback,
-      _1, _2,
-      target_frame,
-      &transformer,
-      &robot_pose_rviz_pub,
-      &robot_pose_to_localization_pub));
+  sync.registerCallback(boost::bind(&boundingBoxCallback, _1, _2, target_frame, &transformer, &robot_pose_rviz_pub,
+                                    &robot_pose_to_localization_pub));
 
 //  sync.registerCallback(
 //    boost::bind(
@@ -410,6 +433,9 @@ int main(int argc, char** argv)
 //      &robot_pose_rviz_pub,
 //      &robot_pose_pub,
 //      &robot_pose_to_localization_pub));
+
+  // Subscriber for receiving the false positive signal.
+  is_false_positive_sub = node.subscribe("is_false_positive", 1, isFalsePositiveCb);
 
   // This callback will be performed once (camera model is costant).
   depth_camera_info_sub = node.subscribe("camera/camera_info", 1, depthCameraInfoCb);
