@@ -86,6 +86,8 @@ void dynamicReconfCb(bb_to_world::BBToWorldConfig& conf, uint32_t level)
 
   z_thresh = conf.z_threshold;
   ROS_DEBUG("z_thresh has changed: %f.", z_thresh);
+
+  return;
 }
 
 void depthCameraInfoCb(const sensor_msgs::CameraInfo::ConstPtr& depth_camera_info)
@@ -143,29 +145,33 @@ void isFalsePositiveCb(const std_msgs::Bool::ConstPtr& is_false_positive_msg)
 // 5. questi punti vengono salvati in una point cloud se non corrispondono al pavimento o alle
 //    persone che passano davanti
 // 6. viene calcolato il centroide di questa point cloud
-void boundingBoxCallback(
-  const sensor_msgs::Image::ConstPtr& sensor_depth_image,
-  const tld_msgs::BoundingBox::ConstPtr& b_box,
-  const std::string target_frame,
-  const tf::TransformListener* transformer,
-  const ros::Publisher* robot_pose_rviz_pub,
-//  const ros::Publisher* robot_pose_pub,
-  const ros::Publisher* robot_pose_to_localization_pub)
+void boundingBoxCallback(const sensor_msgs::Image::ConstPtr& sensor_depth_image,
+                         const tld_msgs::BoundingBox::ConstPtr& b_box, const std::string target_frame, const tf::TransformListener* transformer,
+                         const ros::Publisher* robot_pose_rviz_pub, const ros::Publisher* robot_pose_to_localization_pub)
 {
   static int seq; // Sequence number of the packages sent from this node.
 
   // Quando la confidenza è bassa (o nulla) viene segnalato e non viene pubblicato niente.
   if(b_box->confidence < min_confidence)
   {
-    ROS_WARN("Confidence is too low! Confidence = %.2f.", b_box->confidence);
+    if(b_box->confidence)
+    {
+      ROS_WARN("Confidence is too low! Confidence = %.2f.", b_box->confidence);
+    }
+    else
+    {
+      ROS_WARN("LOST TRACKING.");
+    }
+
     ROS_WARN("I'm not publishing anything.\n");
+
     return;
   }
 
   // Quando la posizione ricevuta e' marcata come falso positivo, viene segnalato e non viene pubblicato niente.
   if(is_false_positive)
   {
-    ROS_WARN("Falso positivo!");
+    ROS_WARN("FALSE POSITIVE!");
     ROS_WARN("I'm not publishing anything.\n");
     return;
   }
