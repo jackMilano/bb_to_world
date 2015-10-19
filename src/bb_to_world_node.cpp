@@ -372,6 +372,7 @@ void boundingBoxCallback(const sensor_msgs::Image::ConstPtr& sensor_depth_image,
   catch(const std::exception& ex)
   {
     ROS_ERROR("%s", ex.what());
+    ros::Duration(1.0).sleep();
   }
 
   return;
