@@ -122,15 +122,18 @@ void depthCameraInfoCb(const sensor_msgs::CameraInfo::ConstPtr& depth_camera_inf
 
 void isFalsePositiveCb(const std_msgs::Bool::ConstPtr& is_false_positive_msg)
 {
-  is_false_positive = is_false_positive_msg->data;
 
-  if(is_false_positive)
+  if(is_false_positive_msg->data)
   {
-    ROS_WARN("bb_to_world: FALSE POSITIVE is TRUE!");
+    ROS_ASSERT_MSG(!is_false_positive, "In 'isFalsePositiveCb'. is_false_positive is already set to true!");
+    ROS_WARN("bb_to_world: we are in a FALSE POSITIVE state!");
+    is_false_positive = true;
   }
   else
   {
-    ROS_WARN("bb_to_world: FALSE POSITIVE is FALSE!");
+    ROS_ASSERT_MSG(is_false_positive, "In 'isFalsePositiveCb'. is_false_positive is already set to false!");
+    ROS_WARN("bb_to_world: the FALSE POSITIVE state has ended!");
+    is_false_positive = false;
   }
 
   return;
