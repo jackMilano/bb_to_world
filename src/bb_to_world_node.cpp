@@ -150,7 +150,7 @@ void isFalsePositiveCb(const std_msgs::Bool::ConstPtr& is_false_positive_msg)
 // 6. viene calcolato il centroide di questa point cloud
 void boundingBoxCallback(const sensor_msgs::Image::ConstPtr& sensor_depth_image,
                          const tld_msgs::BoundingBox::ConstPtr& b_box, const std::string target_frame, const tf::TransformListener* transformer,
-                         const ros::Publisher* robot_pose_rviz_pub)//, const ros::Publisher* robot_pose_to_localization_pub)
+                         const ros::Publisher* robot_pose_rviz_pub, const ros::Publisher* robot_pose_to_localization_pub)
 {
   static int seq; // Sequence number of the packages sent from this node.
 
@@ -337,32 +337,32 @@ void boundingBoxCallback(const sensor_msgs::Image::ConstPtr& sensor_depth_image,
 //    }
 
     // Preparazione del msg PoseWithCovarianceStamped per essere inviato al filtro di Kalman.
-    //geometry_msgs::PoseWithCovarianceStamped geom_pose_2D_stamped_msg;
-    //geom_pose_2D_stamped_msg.header.frame_id = target_frame;
-    //geom_pose_2D_stamped_msg.header.seq = seq;
-    //geom_pose_2D_stamped_msg.header.stamp = sensor_depth_image->header.stamp;
-    //geom_pose_2D_stamped_msg.pose.pose.orientation.w = 1;
-    //geom_pose_2D_stamped_msg.pose.pose.orientation.x = 0;
-    //geom_pose_2D_stamped_msg.pose.pose.orientation.y = 0;
-    //geom_pose_2D_stamped_msg.pose.pose.orientation.z = 0;
-    //geom_pose_2D_stamped_msg.pose.pose.position.x = centroid(0);
-    //geom_pose_2D_stamped_msg.pose.pose.position.y = centroid(1);
-    //geom_pose_2D_stamped_msg.pose.pose.position.z = 0;
-    //{
-    //// XXX: il pacchetto arriva a 'robot_localization'
-    //boost::array<double, 36ul> pose_covariance =
-    //{
-    //1e-2, 0, 0, 0, 0, 0,                                    // small covariance on visual tracking x
-    //0, 1e-2, 0, 0, 0, 0,                                    // small covariance on visual tracking y
-    //0, 0, 1e-6, 0, 0, 0,                                    // small covariance on visual tracking z
-    //0, 0, 0, 1e6, 0, 0,                                     // huge covariance on rot x
-    //0, 0, 0, 0, 1e6, 0,                                     // huge covariance on rot y
-    //0, 0, 0, 0, 0, 1e6                                      // huge covariance on rot z
-    //};
-    //geom_pose_2D_stamped_msg.pose.covariance = pose_covariance;
-    //}
+    geometry_msgs::PoseWithCovarianceStamped geom_pose_2D_stamped_msg;
+    geom_pose_2D_stamped_msg.header.frame_id = target_frame;
+    geom_pose_2D_stamped_msg.header.seq = seq;
+    geom_pose_2D_stamped_msg.header.stamp = sensor_depth_image->header.stamp;
+    geom_pose_2D_stamped_msg.pose.pose.orientation.w = 1;
+    geom_pose_2D_stamped_msg.pose.pose.orientation.x = 0;
+    geom_pose_2D_stamped_msg.pose.pose.orientation.y = 0;
+    geom_pose_2D_stamped_msg.pose.pose.orientation.z = 0;
+    geom_pose_2D_stamped_msg.pose.pose.position.x = centroid(0);
+    geom_pose_2D_stamped_msg.pose.pose.position.y = centroid(1);
+    geom_pose_2D_stamped_msg.pose.pose.position.z = 0;
+    {
+      // XXX: il pacchetto arriva a 'robot_localization'
+      boost::array<double, 36ul> pose_covariance =
+      {
+        1e-2, 0, 0, 0, 0, 0,                                    // small covariance on visual tracking x
+        0, 1e-2, 0, 0, 0, 0,                                    // small covariance on visual tracking y
+        0, 0, 1e-6, 0, 0, 0,                                    // small covariance on visual tracking z
+        0, 0, 0, 1e6, 0, 0,                                     // huge covariance on rot x
+        0, 0, 0, 0, 1e6, 0,                                     // huge covariance on rot y
+        0, 0, 0, 0, 0, 1e6                                      // huge covariance on rot z
+      };
+      geom_pose_2D_stamped_msg.pose.covariance = pose_covariance;
+    }
 
-    //robot_pose_to_localization_pub->publish(geom_pose_2D_stamped_msg);
+    robot_pose_to_localization_pub->publish(geom_pose_2D_stamped_msg);
 
     // after the dispatch the sequence number is incremented
     seq++;
@@ -435,10 +435,10 @@ int main(int argc, char** argv)
 
   // Viene pubblicata la posa 2D del robot, come se fosse un messaggio PoseWithCovarianceStamped,
   //  in modo da poterla inviare al nodo 'robot_localization' per la sensor fusion.
-  //ros::Publisher robot_pose_to_localization_pub = node.advertise<geometry_msgs::PoseWithCovarianceStamped> ("robot_2d_geometry_pose", 1);
+  ros::Publisher robot_pose_to_localization_pub = node.advertise<geometry_msgs::PoseWithCovarianceStamped> ("robot_2d_geometry_pose", 1);
 
-  sync.registerCallback(boost::bind(&boundingBoxCallback, _1, _2, target_frame, &transformer, &robot_pose_rviz_pub));//,
-  //&robot_pose_to_localization_pub));
+  sync.registerCallback(boost::bind(&boundingBoxCallback, _1, _2, target_frame, &transformer, &robot_pose_rviz_pub,
+                                    &robot_pose_to_localization_pub));
 
 //  sync.registerCallback(
 //    boost::bind(
