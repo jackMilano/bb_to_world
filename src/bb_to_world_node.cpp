@@ -63,7 +63,7 @@ typedef tf::Stamped<tf::Vector3> StampedPoint;
 image_geometry::PinholeCameraModel cam_model_;
 ros::Publisher robot_pose_rviz_pub;
 ros::Subscriber depth_camera_info_sub;
-ros::Subscriber is_false_positive_sub;
+//ros::Subscriber is_false_positive_sub;
 bool camera_info_received;
 bool is_false_positive;
 double min_confidence;
@@ -120,24 +120,24 @@ void depthCameraInfoCb(const sensor_msgs::CameraInfo::ConstPtr& depth_camera_inf
 }
 
 
-void isFalsePositiveCb(const std_msgs::Bool::ConstPtr& is_false_positive_msg)
-{
+//void isFalsePositiveCb(const std_msgs::Bool::ConstPtr& is_false_positive_msg)
+//{
 
-  if(is_false_positive_msg->data)
-  {
-    ROS_ASSERT_MSG(!is_false_positive, "In 'isFalsePositiveCb'. is_false_positive is already set to true!");
-    ROS_WARN("bb_to_world: we are in a FALSE POSITIVE state!");
-    is_false_positive = true;
-  }
-  else
-  {
-    ROS_ASSERT_MSG(is_false_positive, "In 'isFalsePositiveCb'. is_false_positive is already set to false!");
-    ROS_WARN("bb_to_world: the FALSE POSITIVE state has ended!");
-    is_false_positive = false;
-  }
+  //if(is_false_positive_msg->data)
+  //{
+    //ROS_ASSERT_MSG(!is_false_positive, "In 'isFalsePositiveCb'. is_false_positive is already set to true!");
+    //ROS_WARN("bb_to_world: we are in a FALSE POSITIVE state!");
+    //is_false_positive = true;
+  //}
+  //else
+  //{
+    //ROS_ASSERT_MSG(is_false_positive, "In 'isFalsePositiveCb'. is_false_positive is already set to false!");
+    //ROS_WARN("bb_to_world: the FALSE POSITIVE state has ended!");
+    //is_false_positive = false;
+  //}
 
-  return;
-}
+  //return;
+//}
 
 // 1. la bounding box (bidimensionale) viene portata nel sistema di riferimento della camera
 // 2. utilizzando la bounding box si estraggono dalla mappa di profondità tutti i punti in essa
@@ -354,7 +354,7 @@ void boundingBoxCallback(const sensor_msgs::Image::ConstPtr& sensor_depth_image,
       {
         1e-2, 0, 0, 0, 0, 0,                                    // small covariance on visual tracking x
         0, 1e-2, 0, 0, 0, 0,                                    // small covariance on visual tracking y
-        0, 0, 1e-6, 0, 0, 0,                                    // small covariance on visual tracking z
+        0, 0, 1e-6, 0, 0, 0,                                    // very small covariance on visual tracking z
         0, 0, 0, 1e6, 0, 0,                                     // huge covariance on rot x
         0, 0, 0, 0, 1e6, 0,                                     // huge covariance on rot y
         0, 0, 0, 0, 0, 1e6                                      // huge covariance on rot z
@@ -451,7 +451,7 @@ int main(int argc, char** argv)
 //      &robot_pose_to_localization_pub));
 
   // Subscriber for receiving the false positive signal.
-  is_false_positive_sub = node.subscribe("is_false_positive", 1, isFalsePositiveCb);
+  //is_false_positive_sub = node.subscribe("is_false_positive", 1, isFalsePositiveCb);
 
   // This callback will be performed once (camera model is costant).
   depth_camera_info_sub = node.subscribe("camera/camera_info", 1, depthCameraInfoCb);
