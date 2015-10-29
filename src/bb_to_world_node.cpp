@@ -22,7 +22,7 @@
 #include <std_msgs/Bool.h>
 #include <std_msgs/Header.h>
 #include <tld_msgs/BoundingBox.h>
-//#include <projected_game_msgs/Pose2DStamped.h>
+#include <projected_game_msgs/Pose2DStamped.h>
 
 // PCL libraries
 #include <pcl/common/centroid.h>
@@ -61,7 +61,7 @@ typedef tf::Stamped<tf::Vector3> StampedPoint;
 // Global variables
 //ros::Publisher show_me_point_cloud;
 image_geometry::PinholeCameraModel cam_model_;
-ros::Publisher robot_pose_rviz_pub;
+ros::Publisher robot_pose_rviz_pub, robot_pose_pub;
 ros::Subscriber depth_camera_info_sub;
 //ros::Subscriber is_false_positive_sub;
 bool camera_info_received;
@@ -324,17 +324,17 @@ void boundingBoxCallback(const sensor_msgs::Image::ConstPtr& sensor_depth_image,
     }
 
     // Preparazione del msg Pose2DStamped per essere inviato ad Unity Bridge
-//    {
-//      projected_game_msgs::Pose2DStamped pose_2D_stamped_msg;
-//      pose_2D_stamped_msg.header.frame_id = target_frame;
-//      pose_2D_stamped_msg.header.seq = seq;
-//      pose_2D_stamped_msg.header.stamp = sensor_depth_image->header.stamp;
-//      pose_2D_stamped_msg.pose.theta = 0.0;
-//      pose_2D_stamped_msg.pose.x = centroid(0);
-//      pose_2D_stamped_msg.pose.y = centroid(1);
+    {
+      projected_game_msgs::Pose2DStamped pose_2D_stamped_msg;
+      pose_2D_stamped_msg.header.frame_id = target_frame;
+      pose_2D_stamped_msg.header.seq = seq;
+      pose_2D_stamped_msg.header.stamp = sensor_depth_image->header.stamp;
+      pose_2D_stamped_msg.pose.theta = 0.0;
+      pose_2D_stamped_msg.pose.x = centroid(0);
+      pose_2D_stamped_msg.pose.y = centroid(1);
 
-//      robot_pose_pub->publish(pose_2D_stamped_msg);
-//    }
+      robot_pose_pub.publish(pose_2D_stamped_msg);
+    }
 
     // Preparazione del msg PoseWithCovarianceStamped per essere inviato al filtro di Kalman.
     geometry_msgs::PoseWithCovarianceStamped geom_pose_2D_stamped_msg;
@@ -431,7 +431,7 @@ int main(int argc, char** argv)
 
   // Viene pubblicata la posa 2D del robot, ottenuta dal tracking visuale,
   //  convertita nelle cordinate del mondo.
-  //  ros::Publisher robot_pose_pub = node.advertise<projected_game_msgs::Pose2DStamped> ("robot_2d_pose", 1);
+  robot_pose_pub = node.advertise<projected_game_msgs::Pose2DStamped> ("robot_2d_pose", 1);
 
   // Viene pubblicata la posa 2D del robot, come se fosse un messaggio PoseWithCovarianceStamped,
   //  in modo da poterla inviare al nodo 'robot_localization' per la sensor fusion.
