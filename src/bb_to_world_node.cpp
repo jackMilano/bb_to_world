@@ -70,10 +70,8 @@ double min_confidence;
 double point_max_height;
 double unit_scaling;
 double z_thresh;
-float center_x;
-float center_y;
-float constant_x;
-float constant_y;
+float center_x, center_y;
+float constant_x, constant_y;
 
 
 void dynamicReconfCb(bb_to_world::BBToWorldConfig& conf, uint32_t level)
@@ -201,13 +199,11 @@ void boundingBoxCallback(const sensor_msgs::Image::ConstPtr& sensor_depth_image,
 
     // Non appena è disponibile la transform tra il sistema di riferimento finale (world) e quello dell'immagine depth,
     // si procede all'operazione di estrazione dei punti.
-    //if(!transformer->waitForTransform(target_frame, bb_pcl.header.frame_id, // ehm: 'bb_pcl.header.frame_id = target_frame;'
-    //sensor_depth_image->header.stamp, ros::Duration(WAIT_TRANS_TIME)))
-    if(!transformer->waitForTransform(target_frame,
-                                      sensor_depth_image->header.frame_id, // ehm: 'bb_pcl.header.frame_id = target_frame;'
-                                      sensor_depth_image->header.stamp, ros::Duration(WAIT_TRANS_TIME)))
+    if(!transformer->waitForTransform(target_frame, sensor_depth_image->header.frame_id, sensor_depth_image->header.stamp,
+                                      ros::Duration(WAIT_TRANS_TIME)))
     {
-      ROS_ERROR("bb_to_world: wait for transform timed out!!");
+      ROS_ERROR("bb_to_world: I've waited for transform `%s --> %s` for %.0f seconds!!", target_frame.c_str(),
+                sensor_depth_image->header.frame_id.c_str(), WAIT_TRANS_TIME);
       return;
     }
 
@@ -435,7 +431,8 @@ int main(int argc, char** argv)
 
   // Viene pubblicata la posa 2D del robot, come se fosse un messaggio PoseWithCovarianceStamped,
   //  in modo da poterla inviare al nodo 'robot_localization' per la sensor fusion.
-  ros::Publisher robot_pose_to_localization_pub = node.advertise<geometry_msgs::PoseWithCovarianceStamped> ("robot_2d_geometry_pose", 1);
+  ros::Publisher robot_pose_to_localization_pub =
+    node.advertise<geometry_msgs::PoseWithCovarianceStamped> ("robot_2d_geometry_pose", 1);
 
   sync.registerCallback(boost::bind(&boundingBoxCallback, _1, _2, target_frame, &transformer, &robot_pose_rviz_pub,
                                     &robot_pose_to_localization_pub));
