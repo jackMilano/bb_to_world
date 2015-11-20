@@ -22,7 +22,6 @@
 #include <std_msgs/Bool.h>
 #include <std_msgs/Header.h>
 #include <tld_msgs/BoundingBox.h>
-//#include <projected_game_msgs/Pose2DStamped.h>
 
 // PCL libraries
 #include <pcl/common/centroid.h>
@@ -151,6 +150,12 @@ void boundingBoxCallback(const sensor_msgs::Image::ConstPtr& sensor_depth_image,
                          const ros::Publisher* robot_pose_rviz_pub, const ros::Publisher* robot_pose_to_localization_pub)
 {
   static int seq; // Sequence number of the packages sent from this node.
+
+  if(!camera_info_received)
+  {
+    ROS_WARN("I parametri della camera non sono ancora stati ricevuti!");
+    return;
+  }
 
   // Quando la confidenza è bassa (o nulla) viene segnalato e non viene pubblicato niente.
   if(b_box->confidence < min_confidence)
@@ -459,11 +464,11 @@ int main(int argc, char** argv)
   ros::Rate rate(rate_hz);
 
   // Non appena sono arrivate le informazioni sulla camera, attiviamo la boundingBoxCallback.
-  while(!camera_info_received)
-  {
-    ros::spinOnce();
-    rate.sleep();
-  }
+  //while(!camera_info_received)
+  //{
+    //ros::spinOnce();
+    //rate.sleep();
+  //}
 
   ros::spin();
 

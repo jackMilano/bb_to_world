@@ -1,5 +1,6 @@
 <launch>
   <arg name="image_topic" default="/kinect2/qhd/image_color_rect"/>
+  <arg name="redirected_image_topic" default="redirected_image_gui"/>
   <arg name="depth_topic" default="/kinect2/qhd/image_depth_rect"/>
   <arg name="depth_camera_info" default="/kinect2/qhd/camera_info"/>
   <arg name="z_threshold" default="0.04"/>
@@ -13,6 +14,7 @@
 
   <include file="$(find tld_tracker)/launch/tld.launch">
     <arg name="image_topic" value="$(arg image_topic)"/>
+    <arg name="redirected_image_topic" value="$(arg image_topic)"/>
     <arg name="load_model" value="$(arg load_model)"/>
     <arg name="model_file" value="$(arg model_file)"/>
   </include>
