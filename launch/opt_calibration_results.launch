@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<!-- CALIBRATION ID: 1436970804 -->
+<launch>
+
+  <!-- Network parameters -->
+
+  <!-- pc: democrab -->
+  <!-- sensor: kinect2 -->
+  <node pkg="tf" type="static_transform_publisher" name="kinect2_broadcaster"
+        args="3.84162 0.192743 2.78958 0.628586 0.618023 -0.333093 -0.334629 /world /kinect2 100" />
+  <node pkg="tf" type="static_transform_publisher" name="kinect2_broadcaster_2"
+        args="0 0 0 0 0 0 /kinect2 /kinect2_link 100" />
+
+</launch>

@@ -1,4 +1,5 @@
 <launch>
+
   <arg name="image_topic" default="/kinect2/qhd/image_color_rect"/>
   <arg name="redirected_image_topic" default="redirected_image_gui"/>
   <arg name="depth_topic" default="/kinect2/qhd/image_depth_rect"/>
@@ -10,7 +11,7 @@
   <arg name="output_frame" default="world"/>
   <arg name="publish_world_tf" default="true"/>
 
-  <include file="$(find opt_calibration)/launch/opt_calibration_results.launch" if="$(arg publish_world_tf)"/>
+  <include file="$(find bb_to_world)/launch/opt_calibration_results.launch" if="$(arg publish_world_tf)"/>
 
   <include file="$(find tld_tracker)/launch/tld.launch">
     <arg name="image_topic" value="$(arg image_topic)"/>
